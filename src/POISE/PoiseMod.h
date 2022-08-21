@@ -1,6 +1,4 @@
 #pragma once
-#include "C:/dev/simpleini-master/SimpleIni.h"
-#include <toml++/toml.h>
 
 #include "Loki_PluginTools.h"
 #include "TrueHUDControl.h"
@@ -32,7 +30,8 @@ namespace Loki {
         float poiseBreakThreshhold0, poiseBreakThreshhold1, poiseBreakThreshhold2;
         float BowMult, CrossbowMult, Hand2Hand, OneHandAxe, OneHandDagger, OneHandMace, OneHandSword, TwoHandAxe, TwoHandSword;
         float RapierMult, PikeMult, SpearMult, HalberdMult, QtrStaffMult, CaestusMult, ClawMult, WhipMult;
-        float PowerAttackMult, BlockedMult, BashMult, HyperArmourMult;
+		float PowerAttackMult, BlockedMult, BashMult, HyperArmourMult, NPCHyperArmourMult, SpellHyperArmourMult, NPCSpellHyperArmourMult;
+		float BashParryMult;
         bool PlayerPoiseEnabled, NPCPoiseEnabled, PlayerRagdollReplacer, NPCRagdollReplacer, PoiseRegenEnabled, TrueHUDBars;
 
         const RE::BSFixedString ae_Stagger = "staggerStart";
@@ -64,10 +63,10 @@ namespace Loki {
         RE::BGSKeyword* kTroll = NULL;
         RE::BGSKeyword* WeapMaterialSilver = NULL;
 
-        RE::BGSKeyword* PoiseDmgNerf = NULL;
-        RE::BGSKeyword* PoiseDmgBuff = NULL;
-        RE::BGSKeyword* PoiseHPNerf = NULL;
-        RE::BGSKeyword* PoiseHPBuff = NULL;
+        //RE::BGSKeyword* PoiseDmgNerf = NULL;
+        //RE::BGSKeyword* PoiseDmgBuff = NULL;
+        //RE::BGSKeyword* PoiseHPNerf = NULL;
+        //RE::BGSKeyword* PoiseHPBuff = NULL;
 
         static inline std::unordered_map<RE::TESRace*, std::vector<float>> poiseRaceMap;
 

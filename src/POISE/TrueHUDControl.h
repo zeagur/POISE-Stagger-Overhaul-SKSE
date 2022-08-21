@@ -1,9 +1,8 @@
 #pragma once
-#include "TrueHUDAPI.h"
-#include "C:/dev/simpleini-master/SimpleIni.h"
 
-#include "PoiseMod.h"
 #include "Loki_PluginTools.h"
+#include "PoiseMod.h"
+#include "TrueHUDAPI.h"
 
 namespace Loki {
 
