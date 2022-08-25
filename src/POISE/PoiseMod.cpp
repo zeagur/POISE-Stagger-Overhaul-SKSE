@@ -180,7 +180,7 @@ void Loki::PoiseMod::InstallWaterHook() {
 }
 
 void Loki::PoiseMod::InstallIsActorKnockdownHook() {
-	REL::Relocation<std::uintptr_t> isActorKnockdown{ RELOCATION_ID(38858, 39895), OFFSET(0x7E, 0x5B) };
+	REL::Relocation<std::uintptr_t> isActorKnockdown{ RELOCATION_ID(38858, 39895), OFFSET(0x7E, 0x68) };
 
 	auto& trampoline = SKSE::GetTrampoline();
 	_IsActorKnockdown = trampoline.write_call<5>(isActorKnockdown.address(), IsActorKnockdown);
