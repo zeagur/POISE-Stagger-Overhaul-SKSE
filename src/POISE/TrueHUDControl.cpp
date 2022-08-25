@@ -45,7 +45,7 @@ float Loki::TrueHUDControl::GetMaxSpecial([[maybe_unused]] RE::Actor* a_actor) {
 				RE::TESRace* a_mapRace = idx.first;
 				if (a_actorRace && a_mapRace) {
 					if (a_actorRace->formID == a_mapRace->formID) {
-						a_result = idx.second[1];
+						a_result = idx.second[0];
 						break;
 					}
 				}

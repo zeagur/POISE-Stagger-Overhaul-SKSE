@@ -252,7 +252,7 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
                         if (effect->IsHostile() && effect->IsDetrimental() && !effect->HasArchetype(RE::EffectArchetypes::ArchetypeID::kCloak)) {
 						    float SpellPoise = effect->data.baseCost;
 							float Level = (MAttacker->GetLevel());
-							a_result = (1.2f * SpellPoise) + (0.10f * Level);
+							a_result = (1.2f * SpellPoise) + (0.08f * Level);
 							//RE::ConsoleLog::GetSingleton()->Print("Poise Damage from Cum-> %f", a_result);    kCloak
 
 						    if (MAttacker->IsPlayerRef()) {
@@ -272,7 +272,7 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
 						if (effect2->IsHostile() && effect2->IsDetrimental() && !effect2->HasArchetype(RE::EffectArchetypes::ArchetypeID::kCloak)) {
 						    float SpellPoise = effect2->data.baseCost;
 							float Level = (MAttacker->GetLevel());
-							a_result = (1.2f * SpellPoise) + (0.10f * Level);
+							a_result = (1.2f * SpellPoise) + (0.08f * Level);
 							//RE::ConsoleLog::GetSingleton()->Print("Poise Damage from Cum-> %f", a_result);   
 
 						    if (MAttacker->IsPlayerRef()) {
@@ -299,8 +299,28 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
 					a_result = 0.00f;
 				}
 
+				//if actor has ward up just negate all spell poise meh.
+				float WardPower = actor->GetActorValue(RE::ActorValue::kWardPower);
+                if (WardPower >= 25.0f) {
+				    a_result = 0.00f;
+                }
+
                 if (blk) {
-					a_result *= ptr->BlockedMult;
+					if (actor->IsPlayerRef()) {
+						float BlockMult = (actor->GetBaseActorValue(RE::ActorValue::kBlock));
+						if (BlockMult >= 20.0f) {
+							float fLogarithm = ((BlockMult - 20) / 50 + 1);
+							double PlayerBlockMult = (0.7 - log10(fLogarithm));
+							PlayerBlockMult = (PlayerBlockMult >= 0.0) ? PlayerBlockMult : 0.0;
+							a_result *= (float)PlayerBlockMult;
+						} 
+                        else {
+							a_result *= 0.7f;
+						}
+					} 
+                    else {
+						a_result *= ptr->BlockedMult;
+					}
 				}
 
 				if (actor->HasKeyword(ptr->kGhost)) {
@@ -515,7 +535,7 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 							a_result = 50.0f;
 						} 
                         if (aggressor->IsPlayerRef()) {
-							a_result = (aggressor->GetBaseActorValue(RE::ActorValue::kUnarmedDamage) / 2);  //conner: we calculate player poise dmg as half of unarmed damage. Clamp to 25 max.
+							a_result = (aggressor->GetActorValue(RE::ActorValue::kUnarmedDamage) / 2);  //conner: we calculate player poise dmg as half of unarmed damage. Clamp to 25 max.
 							if (a_result > 25.0f) {
 								a_result = 25.0f;
 							}
@@ -634,12 +654,11 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 	}
 
     //ward buff is applied after keyword buffs but before hyperarmor and other modifiers 
-	float WardPower = a_actor->GetBaseActorValue(RE::ActorValue::kWardPower);
+	float WardPower = a_actor->GetActorValue(RE::ActorValue::kWardPower);
 	float WardPowerMult = ptr->WardPowerWeight;
 	a_result -= (WardPower * WardPowerMult);
 	(a_result > 0.0f) ? a_result : (a_result = 0.0f);
-	RE::ConsoleLog::GetSingleton()->Print("WardPower-> %f", WardPower);
-	RE::ConsoleLog::GetSingleton()->Print("WardPowerWeight-> %f", WardPowerMult);  
+
 
     if (ptr->ScalePDmgGlobal) {
 		if (a_actor->IsPlayerRef()) {
@@ -851,7 +870,7 @@ bool Loki::PoiseMod::IsActorKnockdown(RE::Character* a_this, std::int64_t a_unk)
     auto ptr = Loki::PoiseMod::GetSingleton();
 
     auto avHealth = a_this->GetActorValue(RE::ActorValue::kHealth);
-    if (a_this->IsOnMount() || avHealth <= 0.00f) {
+    if (a_this->IsOnMount() || avHealth <= 0.05f) {
         return _IsActorKnockdown(a_this, a_unk);
     }
 
