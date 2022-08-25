@@ -85,19 +85,29 @@ Loki::PoiseMod::PoiseMod() {
     this->NPCRagdollReplacer    = ini.GetBoolValue("MAIN", "bNPCRagdollReplacer", false);
     this->PoiseRegenEnabled     = ini.GetBoolValue("MAIN", "bPoiseRegen", false);
     this->TrueHUDBars           = ini.GetBoolValue("MAIN", "bTrueHUDBars", false);
+	this->SpellPoise            = ini.GetBoolValue("MAIN", "bSpellPoise", false);
+	this->PlayerSpellPoise      = ini.GetBoolValue("MAIN", "bPlayerSpellPoise", false);
+
     this->poiseBreakThreshhold0 = (float)ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold0", -1.00f);
 	this->poiseBreakThreshhold1 = (float)ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold1", -1.00f);
 	this->poiseBreakThreshhold2 = (float)ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold2", -1.00f);
 
-    this->HyperArmourMult = (float)ini.GetDoubleValue("HYPERARMOR", "fHyperArmourMult", -1.00f);
+   // this->HyperArmourMult = (float)ini.GetDoubleValue("HYPERARMOR", "fHyperArmourMult", -1.00f);
 	this->NPCHyperArmourMult = (float)ini.GetDoubleValue("HYPERARMOR", "fNPCHyperArmourMult", -1.00f);
-	this->SpellHyperArmourMult = (float)ini.GetDoubleValue("HYPERARMOR", "fSpellHyperArmourMult", -1.00f);
+	//this->SpellHyperArmourMult = (float)ini.GetDoubleValue("HYPERARMOR", "fSpellHyperArmourMult", -1.00f);
 	this->NPCSpellHyperArmourMult = (float)ini.GetDoubleValue("HYPERARMOR", "fNPCSpellHyperArmourMult", -1.00f);
 
     this->PowerAttackMult = (float)ini.GetDoubleValue("MECHANICS", "fPowerAttackMult", -1.00f);
     this->BlockedMult     = (float)ini.GetDoubleValue("MECHANICS", "fBlockedMult", -1.00f);
     this->BashMult        = (float)ini.GetDoubleValue("MECHANICS", "fBashMult", -1.00f);
 	this->BashParryMult   = (float)ini.GetDoubleValue("MECHANICS", "fBashParryMult", -1.00f);
+
+    this->ScalePHealthGlobal      = ini.GetBoolValue("GLOBALMULT", "bScalePHealthGlobal", false);
+	this->ScalePDmgGlobal         = ini.GetBoolValue("GLOBALMULT", "bScalePDmgGlobal", false);
+	this->GlobalPHealthMult       = (float)ini.GetDoubleValue("GLOBALMULT", "fGlobalPHealthMult", -1.00f);
+	this->GlobalPDmgMult          = (float)ini.GetDoubleValue("GLOBALMULT", "fGlobalPDmgMult", -1.00f);
+	this->GlobalPlayerPHealthMult = (float)ini.GetBoolValue("GLOBALMULT", "fGlobalPlayerPHealthMult", false);
+	this->GlobalPlayerPDmgMult    = (float)ini.GetBoolValue("GLOBALMULT", "fGlobalPlayerPDmgMult", false);
 
     this->BowMult         = (float)ini.GetDoubleValue("WEAPON", "fBowMult", -1.00f);
     this->CrossbowMult    = (float)ini.GetDoubleValue("WEAPON", "fCrossbowMult", -1.00f);
@@ -117,6 +127,15 @@ Loki::PoiseMod::PoiseMod() {
     this->CaestusMult  = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fCaestusMult", -1.00f);
     this->ClawMult     = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fClawMult", -1.00f);
     this->WhipMult     = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fWhipMult", -1.00f);
+
+    this->UseOldFormula             = ini.GetBoolValue("FORMULAE", "bUseOldFormula", false);
+	this->PhysicalDmgWeight         = (float)ini.GetDoubleValue("FORMULAE", "fPhysicalDmgWeight", -1.00f);
+	this->MaxPoiseLevelWeight       = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseLevelWeight", -1.00f);
+	this->MaxPoiseLevelWeightPlayer = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseLevelWeightPlayer", -1.00f);
+	this->ArmorLogarithmSlope       = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseArmorRatingSlope", -1.00f);
+	this->ArmorLogarithmSlopePlayer = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseArmorRatingSlopePlayer", -1.00f);
+	this->WardPowerWeight           = (float)ini.GetDoubleValue("FORMULAE", "fWardPowerWeight", -1.00f);
+
 
     if (auto dataHandle = RE::TESDataHandler::GetSingleton(); dataHandle) {
         poiseDelaySpell  = dataHandle->LookupForm<RE::SpellItem>(0xD62, "loki_POISE.esp");
@@ -192,26 +211,26 @@ Loki::PoiseMagicDamage* Loki::PoiseMagicDamage::GetSingleton() {
 
 auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BSTEventSource<RE::TESHitEvent>*) -> RE::BSEventNotifyControl {
     if (!a_event || !a_event->projectile) {
-		logger::trace("Projectile: null projectile");
         return RE::BSEventNotifyControl::kContinue;
     }
     if (!a_event->target || !a_event->cause) {
-		logger::trace("Projectile: null target null cause");
         return RE::BSEventNotifyControl::kContinue;
     } 
+
     else {	   
         auto MAttacker = a_event->cause.get()->As<RE::Actor>();
 		if (MAttacker == NULL) {
-            logger::trace("actor is none");
 			return RE::BSEventNotifyControl::kContinue;
         }           
 		else if (MAttacker) {
-			logger::info("event had projectile, calculating based on attacker data!");
             if (auto actor = a_event->target.get()->As<RE::Actor>(); actor) {
                 auto ptr = Loki::PoiseMod::GetSingleton();
-				logger::info("Projectile calculation being attempted");
+				//logger::info("Projectile calculation being attempted");
                 float a_result = 0.00f;
 
+                if (!ptr->SpellPoise) {
+					return RE::BSEventNotifyControl::kContinue;
+                }
 				auto avHealth = actor->GetActorValue(RE::ActorValue::kHealth);
 				auto avParalysis = actor->GetActorValue(RE::ActorValue::kParalysis);
 				if (avHealth <= 0.05f || actor->IsInKillMove() || avParalysis) {
@@ -230,54 +249,50 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
                 // AKA this is completely broken and stupid roflmao. Remove this when loki gets new magic effect hook!!!
                 if (lspell) {
 				    if (auto effect = lspell->avEffectSetting->As<RE::EffectSetting>(); effect) {        
-                        if (effect->IsHostile() && effect->IsDetrimental()) {
+                        if (effect->IsHostile() && effect->IsDetrimental() && !effect->HasArchetype(RE::EffectArchetypes::ArchetypeID::kCloak)) {
 						    float SpellPoise = effect->data.baseCost;
+							float Level = (MAttacker->GetLevel());
+							a_result = (1.2f * SpellPoise) + (0.10f * Level);
+							//RE::ConsoleLog::GetSingleton()->Print("Poise Damage from Cum-> %f", a_result);    kCloak
+
 						    if (MAttacker->IsPlayerRef()) {
-						        logger::info("player is the spell caster being processed.");
+								if (!ptr->PlayerSpellPoise) {
+									return RE::BSEventNotifyControl::kContinue;
+								}
 							    if (effect->data.castingType == RE::MagicSystem::CastingType::kConcentration) {
                                     SpellPoise *= 0.2f;
-								    logger::info("player is firing concentration spell..");
                                 }
 							    a_result = 0.8f * SpellPoise;
 						    } 
-                            else {		
-                                float Level = (MAttacker->GetLevel());
-								a_result = (1.8f * SpellPoise) + ( 0.10f * Level);
-							    RE::ConsoleLog::GetSingleton()->Print("Poise Damage from Cum-> %f", a_result);                            
-						    }
                         }
 				    } 
                 }
                 else if (rspell) {
                     if (auto effect2 = rspell->avEffectSetting->As<RE::EffectSetting>(); effect2) {
-					    if (effect2->IsHostile() && effect2->IsDetrimental()) {
+						if (effect2->IsHostile() && effect2->IsDetrimental() && !effect2->HasArchetype(RE::EffectArchetypes::ArchetypeID::kCloak)) {
 						    float SpellPoise = effect2->data.baseCost;
+							float Level = (MAttacker->GetLevel());
+							a_result = (1.2f * SpellPoise) + (0.10f * Level);
+							//RE::ConsoleLog::GetSingleton()->Print("Poise Damage from Cum-> %f", a_result);   
+
 						    if (MAttacker->IsPlayerRef()) {
-							    logger::info("player is the spell caster being processed.");
+								if (!ptr->PlayerSpellPoise) {
+									return RE::BSEventNotifyControl::kContinue;
+								}
 							    if (effect2->data.castingType == RE::MagicSystem::CastingType::kConcentration) {
 								    SpellPoise *= 0.2f;
-								    logger::info("player is firing concentration spell..");
 							    }
 							    a_result = 0.8f * SpellPoise;
 						    } 
-                            else {
-							    float Level = (MAttacker->GetLevel());
-							    a_result = (1.8f * SpellPoise) + (0.10f * Level);
-							    RE::ConsoleLog::GetSingleton()->Print("Poise Damage from Cum-> %f", a_result);   
-					        }
 				        }          
                     }
                 }
 
-				bool blk, shout;
+				bool blk;
 				actor->GetGraphVariableBool("IsBlocking", blk);
-				actor->GetGraphVariableBool("IsShouting", shout);
 
-				//float WardPower = actor->GetBaseActorValue(RE::ActorValue::kWardPower);
-                //WardPower > 100.0f ? (WardPower = 100.0f) : WardPower;  
-                //float WardPowerResult = (1 - WardPower / 100);
-                //WardPower > 0.0f ? (a_result *= (WardPowerResult)) : a_result;
-                //RE::ConsoleLog::GetSingleton()->Print("WardPower-> %f", WardPower);  
+				//bool shout;
+				//actor->GetGraphVariableBool("IsShouting", shout);
 
 				if (a_result < 0.00f) {
 					logger::info("Magic damage was negative... somehow?");
@@ -292,9 +307,10 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
 					a_result = 0.00f;
 				}
 
-				if (shout) {
-					a_result = 0.00f;
-				}
+                
+				//if (shout) {
+				//	a_result = 0.00f;
+				//}
 
                 actor->pad0EC -= (int)a_result;
                 if (actor->pad0EC > 100000) { actor->pad0EC = 0; }
@@ -437,19 +453,21 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
     // this whole function is BAD and DIRTY but i cant think of any other way at the moment
 
     auto ptr = Loki::PoiseMod::GetSingleton();
-	bool blk, atk, castleft, castright, castdual, shout, aggressorattack;
+	bool blk, atk, castleft, castright, castdual, aggressorattack;
 	a_actor->GetGraphVariableBool("IsBlocking", blk);
 	a_actor->GetGraphVariableBool("IsAttacking", atk);
 	a_actor->GetGraphVariableBool("IsCastingDual", castdual);
 	a_actor->GetGraphVariableBool("IsCastingRight", castright);
 	a_actor->GetGraphVariableBool("IsCastingLeft", castleft);
-	a_actor->GetGraphVariableBool("IsShouting", shout);
     auto aggressor = a_hitData.aggressor.get().get();
 	aggressor->GetGraphVariableBool("IsAttacking", aggressorattack);
+	//bool shout;
+	//a_actor->GetGraphVariableBool("IsShouting", shout);
 
     auto weap = a_hitData.weapon;
     float a_result = 8.00f;
     bool isSilver = false;
+
     if (!weap) {
         if (!aggressor) {
             a_result = 8.00f;
@@ -487,29 +505,22 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
                     break;
                 }
                 else {
-					if (!aggressor)
-						break;
-					else if (aggressor->IsPlayerRef()) {
-						a_result = (aggressor->GetBaseActorValue(RE::ActorValue::kUnarmedDamage) / 2); 
-                                //conner: we calculate player poise dmg as half of unarmed damage. Clamp to 25 max.
-						if (a_result > 25.0f) {
-							a_result = 25.0f;
-						}
+					if (!aggressor) {
+						a_result = 8.00f;  //if nullcheck fail just set it to 10 meh.                                                          
 						break;
 					}
                     else {
-                        if (!aggressor) {
-							break;
-                        } 
-                        else {
-						
-					        a_result = (aggressor->equippedWeight / 2);
-						          //conner: for npc we use 1/2 of equip weight. Clamped to 50.
-						    if (a_result > 50.0f) {
-							    a_result = 50.0f;
-						    }
-						    break;
+						a_result = (aggressor->equippedWeight / 2);   //conner: for npc we use 1/2 of equip weight. Clamped to 50.						                                                                    
+						if (a_result > 50.0f) {
+							a_result = 50.0f;
+						} 
+                        if (aggressor->IsPlayerRef()) {
+							a_result = (aggressor->GetBaseActorValue(RE::ActorValue::kUnarmedDamage) / 2);  //conner: we calculate player poise dmg as half of unarmed damage. Clamp to 25 max.
+							if (a_result > 25.0f) {
+								a_result = 25.0f;
+							}
                         }
+						break;
                     }
                 }
                 a_result *= ptr->Hand2Hand;
@@ -567,10 +578,19 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 		if (weap->weaponData.flags2.any(RE::TESObjectWEAP::Data::Flag2::kBoundWeapon)) {
 			if (aggressor) {
 				a_result = (8 + (aggressor->GetBaseActorValue(RE::ActorValue::kConjuration) * 0.12f));
-				RE::ConsoleLog::GetSingleton()->Print("Using bound weapon flag, poise damage is %f", a_result);
+				//RE::ConsoleLog::GetSingleton()->Print("Using bound weapon flag, poise damage is %f", a_result);
 			}
 		}
     }
+
+    //if we dont use original recipe, we add a portion of base physical damage to poise damage.
+    if (!ptr->UseOldFormula) {
+		float Damage = a_hitData.physicalDamage;
+		float Plevel = ptr->PhysicalDmgWeight;
+		//RE::ConsoleLog::GetSingleton()->Print("Physical damage done by attack is %f", Damage);
+		a_result += (Damage * Plevel);
+	}
+
 
     if (aggressor->HasKeywordString("ActorTypeCreature") || aggressor->HasKeywordString("ActorTypeDwarven")) {
 	    for (auto idx : ptr->poiseRaceMap) {
@@ -596,21 +616,39 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 			if (!aeffect->GetBaseObject()) {
 				continue;
 			}
+			if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzPoiseDamageFlat")) {
+				auto buffFlat = (aeffect->magnitude);
+				a_result += buffFlat;  //conner: additive instead of multiplicative buff.
+			}
 			if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzPoiseDamageIncrease")) {
-				//auto buffPercent = (aeffect->magnitude / 100.00f);	// convert to percentage
-				//auto resultingBuff = (a_result * buffPercent);
-				//logger::info("aggressor does EXTRA poise damage.");
-				auto resultingBuff = (aeffect->magnitude);
+				auto buffPercent = (aeffect->magnitude / 100.00f);	// convert to percentage
+				auto resultingBuff = (a_result * buffPercent);
 				a_result += resultingBuff;	// aggressor has buff that makes them do more poise damage
 			}
 			if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzPoiseDamageDecrease")) {
-				//auto nerfPercent = (aeffect->magnitude / 100.00f);	// convert to percentage
-				//auto resultingNerf = (a_result * nerfPercent);
-				auto resultingNerf = (aeffect->magnitude);
+				auto nerfPercent = (aeffect->magnitude / 100.00f);	// convert to percentage
+				auto resultingNerf = (a_result * nerfPercent);
 				a_result -= resultingNerf;	// aggressor has nerf that makes them do less poise damage
 			}
 		}
 	}
+
+    //ward buff is applied after keyword buffs but before hyperarmor and other modifiers 
+	float WardPower = a_actor->GetBaseActorValue(RE::ActorValue::kWardPower);
+	float WardPowerMult = ptr->WardPowerWeight;
+	a_result -= (WardPower * WardPowerMult);
+	(a_result > 0.0f) ? a_result : (a_result = 0.0f);
+	RE::ConsoleLog::GetSingleton()->Print("WardPower-> %f", WardPower);
+	RE::ConsoleLog::GetSingleton()->Print("WardPowerWeight-> %f", WardPowerMult);  
+
+    if (ptr->ScalePDmgGlobal) {
+		if (a_actor->IsPlayerRef()) {
+			a_result *= ptr->GlobalPlayerPDmgMult;
+		} else {
+			a_result *= ptr->GlobalPDmgMult;
+		}
+	}
+
 
     if (auto data = a_hitData.attackData.get()) {
         if (data->data.flags == RE::AttackData::AttackFlag::kPowerAttack) {
@@ -620,8 +658,8 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
         if (data->data.flags == RE::AttackData::AttackFlag::kBashAttack) {
 			if (aggressorattack) {
 				a_result *= ptr->BashParryMult;   
-                RE::ConsoleLog::GetSingleton()->Print("BASH PARRY!! VERY FANTASTIC!");
-				logger::info("BASH PARRY!! VERY FANTASTIC!");
+                //RE::ConsoleLog::GetSingleton()->Print("BASH PARRY!! VERY FANTASTIC!");
+				//logger::info("BASH PARRY!! VERY FANTASTIC!");
             } 
             else {
                 a_result *= ptr->BashMult;
@@ -630,7 +668,22 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
     }
     
     if (blk) {
-        a_result *= ptr->BlockedMult;
+
+		if (a_actor->IsPlayerRef()) {
+			float BlockMult = (a_actor->GetBaseActorValue(RE::ActorValue::kBlock));
+			if (BlockMult >= 20.0f) {
+				float fLogarithm = ((BlockMult - 20) / 50 + 1);
+				double PlayerBlockMult = (0.7 - log10(fLogarithm));
+				PlayerBlockMult = (PlayerBlockMult >= 0.0) ? PlayerBlockMult : 0.0;
+				a_result *= (float)PlayerBlockMult;
+			}
+            else {
+				a_result *= 0.7f;
+            }
+		} 
+        else {
+			a_result *= ptr->BlockedMult;
+		}
     }
 
     if (atk) {
@@ -639,18 +692,18 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 			if (LightArmorMult >= 20.0f) {
 				float fLogarithm = ( (LightArmorMult - 20) / 50 + 1);
 				double PlayerHyperArmourMult = (0.8 - log2(fLogarithm) * 0.4);
-				RE::ConsoleLog::GetSingleton()->Print("logarithm value: %f", fLogarithm);
-				RE::ConsoleLog::GetSingleton()->Print("Player hyper armor LOG Calculation: %f", PlayerHyperArmourMult);
-				PlayerHyperArmourMult = PlayerHyperArmourMult >= 0.0 ? PlayerHyperArmourMult : PlayerHyperArmourMult = 0.0;  //if value is negative, player is at a dumb level so just give them full damage mitigation. 
+				//RE::ConsoleLog::GetSingleton()->Print("logarithm value: %f", fLogarithm);
+				//RE::ConsoleLog::GetSingleton()->Print("Player hyper armor LOG Calculation: %f", PlayerHyperArmourMult);
+				PlayerHyperArmourMult = PlayerHyperArmourMult >= 0.0 ? PlayerHyperArmourMult : 0.0;  //if value is negative, player is at a dumb level so just give them full damage mitigation. 
 				a_result *= (float)PlayerHyperArmourMult;
-				RE::ConsoleLog::GetSingleton()->Print("Player hyper armor multipler: %f", (float)PlayerHyperArmourMult);
-				RE::ConsoleLog::GetSingleton()->Print("Damage after calculation of hyperarmor: %f", a_result);
-				logger::info("player hyperarmor scaled to light armor");
+				//RE::ConsoleLog::GetSingleton()->Print("Player hyper armor multipler: %f", (float)PlayerHyperArmourMult);
+				//RE::ConsoleLog::GetSingleton()->Print("Damage after calculation of hyperarmor: %f", a_result);
+				//logger::info("player hyperarmor scaled to light armor");
 			} 
             else {
 				a_result *= 0.8f;
-				RE::ConsoleLog::GetSingleton()->Print("Player light armor is 20 or below, using default hyperarmor of %f", ptr->HyperArmourMult);
-				logger::info("player hyperarmor NOT scaled to light armor");
+				//RE::ConsoleLog::GetSingleton()->Print("Player light armor is 20 or below, using default hyperarmor of %f", ptr->HyperArmourMult);
+				//logger::info("player hyperarmor NOT scaled to light armor");
 			}
 
         } 
@@ -666,13 +719,13 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 		   if (LightArmorMult >= 20.0f) {
 			   float fLogarithm = ((LightArmorMult - 20) / 60 + 1);
 			   double PlayerHyperArmourMult = (1.5 - log2(fLogarithm) * 0.8);
-			   RE::ConsoleLog::GetSingleton()->Print("spell logarithm value: %f", fLogarithm);
-			   RE::ConsoleLog::GetSingleton()->Print("Player spell HyperArmor LOG Calculation: %f", PlayerHyperArmourMult);
+			   //RE::ConsoleLog::GetSingleton()->Print("spell logarithm value: %f", fLogarithm);
+			   //RE::ConsoleLog::GetSingleton()->Print("Player spell HyperArmor LOG Calculation: %f", PlayerHyperArmourMult);
 			   PlayerHyperArmourMult = PlayerHyperArmourMult >= 0.0 ? PlayerHyperArmourMult : PlayerHyperArmourMult = 0.0;	//if value is negative, player is at a dumb level so just give them full damage mitigation.
 			   a_result *= (float)PlayerHyperArmourMult;
-			   RE::ConsoleLog::GetSingleton()->Print("Player spell hyperarmor multipler: %f", (float)PlayerHyperArmourMult);
-			   RE::ConsoleLog::GetSingleton()->Print("Damage after calculation of hyperarmor: %f", a_result);
-			   logger::info("player SPELL hyperarmor scaled to light armor");
+			   //RE::ConsoleLog::GetSingleton()->Print("Player spell hyperarmor multipler: %f", (float)PlayerHyperArmourMult);
+			   //RE::ConsoleLog::GetSingleton()->Print("Damage after calculation of hyperarmor: %f", a_result);
+			   //logger::info("player SPELL hyperarmor scaled to light armor");
 		   }
 		   else {
                a_result *= 1.5f;
@@ -682,7 +735,8 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
         } 
         else {
 			a_result *= ptr->NPCSpellHyperArmourMult;
-			logger::info("npc spell hyperarmor calculated");
+			//logger::info("npc spell hyperarmor calculated");
+			//RE::ConsoleLog::GetSingleton()->Print("npc spell hyperarmor %f", ptr->NPCSpellHyperArmourMult);
 		}
     }
 
@@ -690,24 +744,16 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
         a_result = 0.00f;
     }
 
-    if (shout) {
-		a_result = 0.00f;
-	}
 
-    //quick mathematics: Base hyperarmor is 20% damage reduction. Base spell multiplier is 1.5x Light armor buffs hyperarmor. 
+    //shout check is broken doesnt work, lets revisit this at another time!
+    //if (shout) {
+	//	a_result = 0.00f;
+	//	RE::ConsoleLog::GetSingleton()->Print("Shout MULT active");
+	//}
+
+    //quick mathematics: Base hyperarmor is 20% damage reduction. Base spell multiplier is 1.5x. Light armor buffs hyperarmor. 
     //First 20 levels of ActorValue do not count for scaling. The remaining 80 levels scale damage reduction logarithmically
-    //at level 20 we take 80% damage when attacking; at level 50 we take 40%, at level 100 we take 25%.
 
-    //future addition: let players modify formula in ini.
-    //hyperarmor clamps: these set the minimum and maximum multiplier for player's melee hyperarmor.
-    //hyperarmor slope: higher values = poise scales less. lower values = poise reduction scales more. 
-    //At slope 20, attack multiplier becomes 0 at skill level 80. Choose carefully.
-
-	//HyperArmorClampMin = 0.10;
-	//HyperArmorClampMax = 1.0;
-    //SpellHyperArmorClampMin = 0.10;
-    //SpellHyperArmorClampMin = 3;
-    //HyperArmorSlope = 100
 
     return a_result;
 
@@ -717,16 +763,27 @@ float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor) {
 
     auto ptr = Loki::PoiseMod::GetSingleton();
 
-    // loki's calculation
-    // float a_result = (a_actor->equippedWeight + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
-
-	//Caveat: NPC poise doubles with every 250 points of DamageResist. For modded NPCs with high AR value this can get very stupid. Find solution.
+	//Scales logarithmically with armorrating.
 	float level = a_actor->GetLevel();
+	float levelweight = ptr->MaxPoiseLevelWeight;
+    float levelweightplayer = ptr->MaxPoiseLevelWeightPlayer;
+	float ArmorRating = a_actor->GetActorValue(RE::ActorValue::kDamageResist);
+	float ArmorWeight = ptr->ArmorLogarithmSlope;
+	float ArmorWeightPlayer = ptr->ArmorLogarithmSlopePlayer;
+
 	level = (level < 100 ? level : 100);
-	float a_result = (a_actor->equippedWeight + (0.5f * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + (a_actor->GetActorValue(RE::ActorValue::kDamageResist)) / 250);
+	float a_result = (a_actor->equippedWeight + (levelweight * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeight + 1));
 	if (a_actor->IsPlayerRef()) {
 		level = (level < 60 ? level : 60);
-		a_result = (a_actor->equippedWeight + (0.5f * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + (a_actor->GetActorValue(RE::ActorValue::kDamageResist)) / 1850);
+		a_result = (a_actor->equippedWeight + (levelweightplayer * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeightPlayer + 1));
+    }
+
+
+
+
+    //KFC Original Recipe.
+    if (ptr->UseOldFormula) {
+		a_result = (a_actor->equippedWeight + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
     }
 
     if (a_actor && a_actor->race->HasKeywordString("ActorTypeCreature") || a_actor->race->HasKeywordString("ActorTypeDwarven")) {
@@ -736,13 +793,22 @@ float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor) {
 			    RE::TESRace* a_mapRace = idx.first;
 			    if (a_actorRace && a_mapRace) {
 				    if (a_actorRace->formID == a_mapRace->formID) {
-				        a_result = idx.second[1];
+						a_result = idx.second[0];
 						break;
 			        } 
 			    }
 		    }
 	    }
     }
+
+    if (ptr->ScalePHealthGlobal) {
+		if (a_actor->IsPlayerRef()) {
+			a_result *= ptr->GlobalPlayerPHealthMult;
+		} 
+        else {
+			a_result *= ptr->GlobalPHealthMult;
+		}
+	}
 
     const auto effect = a_actor->GetActiveEffectList();
 	if (effect) {
@@ -753,25 +819,25 @@ float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor) {
 			if (!veffect->GetBaseObject()) {
 				continue;
 			}
-			if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseIncrease")) {
-				//auto buffPercent = (veffect->magnitude / 100.00f);	// convert to percentage
-				//auto resultingBuff = (a_result * buffPercent);
-				auto resultingBuff = (veffect->magnitude);
-				a_result += resultingBuff;	// victim has poise hp buff
-											//conner: i made this additive not multiplicative. Easier to work with.
-			}
-			if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseDecrease")) {
-				//auto nerfPercent = (veffect->magnitude / 100.00f);	// convert to percentage
-				//auto resultingNerf = (a_result * nerfPercent);
-				//conner: we make these additive instead of multiplicative. easier to work with.
-				auto resultingNerf = (veffect->magnitude);
-				a_result -= resultingNerf;	// victim poise hp nerf
-											//conner: this loops through and adds every buff on actor.
+			if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseHealthFlat")) {
+				auto buffFlat = (veffect->magnitude);
+				a_result += buffFlat; 				        //conner: additive instead of multiplicative buff.
+				//RE::ConsoleLog::GetSingleton()->Print("flat buff = %f", buffFlat);
 			}
 			if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("MagicArmorSpell")) {
 				auto armorflesh = (0.1f * veffect->magnitude);
 				a_result += armorflesh;
 				//RE::ConsoleLog::GetSingleton()->Print("armor flesh poise buff = %f", armorflesh);
+			}
+			if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseIncrease")) {
+				auto buffPercent = (veffect->magnitude / 100.00f);	// convert to percentage
+				auto resultingBuff = (a_result * buffPercent);
+				a_result += resultingBuff;	// victim has poise hp buff
+			}
+			if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseDecrease")) {
+				auto nerfPercent = (veffect->magnitude / 100.00f);	// convert to percentage
+				auto resultingNerf = (a_result * nerfPercent);
+				a_result -= resultingNerf;	// victim poise hp nerf
 			}
 		}
 	}
@@ -788,8 +854,10 @@ bool Loki::PoiseMod::IsActorKnockdown(RE::Character* a_this, std::int64_t a_unk)
     if (a_this->IsOnMount() || avHealth <= 0.00f) {
         return _IsActorKnockdown(a_this, a_unk);
     }
+
     static RE::BSFixedString str = NULL;
-    if (a_this->IsPlayerRef() && ptr->PlayerRagdollReplacer) {
+
+	if ((a_this->IsPlayerRef() && ptr->PlayerRagdollReplacer) || (!a_this->IsPlayerRef() && ptr->NPCRagdollReplacer)) {
         float knockdownDirection = 0.00f;
         a_this->GetGraphVariableFloat("staggerDirection", knockdownDirection);
         if (knockdownDirection > 0.25f && knockdownDirection < 0.75f) {
@@ -804,26 +872,7 @@ bool Loki::PoiseMod::IsActorKnockdown(RE::Character* a_this, std::int64_t a_unk)
         a_this->NotifyAnimationGraph(str);
         return false;
     } 
-    else if (!a_this->IsPlayerRef() && ptr->NPCRagdollReplacer) {
-		if (a_this->IsInMidair()) {
-			logger::info("Telekinesis patch: actor is grabbed by player");
-			return _IsActorKnockdown(a_this, a_unk);
-        }
-        float knockdownDirection = 0.00f;
-        a_this->GetGraphVariableFloat("staggerDirection", knockdownDirection);
-        if (knockdownDirection > 0.25f && knockdownDirection < 0.75f) {
-            str = ptr->poiseLargestFwd;
-        } 
-        else {
-            str = ptr->poiseLargestBwd;
-        }
-        if (TrueHUDControl::GetSingleton()->g_trueHUD) {
-            TrueHUDControl::GetSingleton()->g_trueHUD->
-                FlashActorSpecialBar(SKSE::GetPluginHandle(), a_this->GetHandle(), true);
-        }
-        a_this->NotifyAnimationGraph(str);
-        return false;
-    }
+
     return _IsActorKnockdown(a_this, a_unk);
 
 }

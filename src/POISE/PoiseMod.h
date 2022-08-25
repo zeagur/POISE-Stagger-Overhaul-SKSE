@@ -31,8 +31,10 @@ namespace Loki {
         float BowMult, CrossbowMult, Hand2Hand, OneHandAxe, OneHandDagger, OneHandMace, OneHandSword, TwoHandAxe, TwoHandSword;
         float RapierMult, PikeMult, SpearMult, HalberdMult, QtrStaffMult, CaestusMult, ClawMult, WhipMult;
 		float PowerAttackMult, BlockedMult, BashMult, HyperArmourMult, NPCHyperArmourMult, SpellHyperArmourMult, NPCSpellHyperArmourMult;
-		float BashParryMult;
+		float BashParryMult, GlobalPHealthMult, GlobalPDmgMult, GlobalPlayerPHealthMult, GlobalPlayerPDmgMult;
+		float MaxPoiseLevelWeight, MaxPoiseLevelWeightPlayer, PhysicalDmgWeight, ArmorLogarithmSlope, ArmorLogarithmSlopePlayer, WardPowerWeight; 
         bool PlayerPoiseEnabled, NPCPoiseEnabled, PlayerRagdollReplacer, NPCRagdollReplacer, PoiseRegenEnabled, TrueHUDBars;
+		bool ScalePHealthGlobal, ScalePDmgGlobal, SpellPoise, PlayerSpellPoise, UseOldFormula; 
 
         const RE::BSFixedString ae_Stagger = "staggerStart";
         const RE::BSFixedString staggerDire = "staggerDirection";

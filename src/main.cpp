@@ -54,7 +54,7 @@ namespace
 		log->flush_on(spdlog::level::info);
 
 		spdlog::set_default_logger(std::move(log));
-		spdlog::set_pattern("%g(%#): [%^%l%$] %v"s);
+		spdlog::set_pattern("[%^%l%$] %v"s);
 
 		logger::info(FMT_STRING("{} v{}"), Version::PROJECT, Version::NAME);
 	}
@@ -109,6 +109,9 @@ namespace PoiseMod {  // Papyrus Functions
             poise -= (int)a_amount;
             a_actor->pad0EC = poise;
             if (a_actor->pad0EC > 100000) { a_actor->pad0EC = 0; }
+			if (Loki::TrueHUDControl::GetSingleton()->g_trueHUD) {
+				Loki::TrueHUDControl::GetSingleton()->GetCurrentSpecial(a_actor);
+			}
         }
 
     }
@@ -122,6 +125,9 @@ namespace PoiseMod {  // Papyrus Functions
             poise += (int)a_amount;
             a_actor->pad0EC = poise;
             if (a_actor->pad0EC > 100000) { a_actor->pad0EC = 0; }
+			if (Loki::TrueHUDControl::GetSingleton()->g_trueHUD) {
+				Loki::TrueHUDControl::GetSingleton()->GetCurrentSpecial(a_actor);
+			}
         }
 
     }
@@ -143,14 +149,25 @@ namespace PoiseMod {  // Papyrus Functions
         } else {
             auto ptr = Loki::PoiseMod::GetSingleton();
 
-			//conner: new formula; add loki's old formula back as toggleable option?
-			//Caveat: NPC poise doubles with every 250 points of DamageResist. For modded NPCs with high AR value this can get very stupid. Find solution.
+			//conner: new formula; add loki's old formula back as toggleable option.
+			//staggerlock is a skill issue.
 			float level = a_actor->GetLevel();
+			float levelweight = ptr->MaxPoiseLevelWeight;
+			float levelweightplayer = ptr->MaxPoiseLevelWeightPlayer;
+			float ArmorRating = a_actor->GetActorValue(RE::ActorValue::kDamageResist);
+			float ArmorWeight = ptr->ArmorLogarithmSlope;
+			float ArmorWeightPlayer = ptr->ArmorLogarithmSlopePlayer;
+
 			level = (level < 100 ? level : 100);
-			float a_result = (a_actor->equippedWeight + (0.5f * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + (a_actor->GetActorValue(RE::ActorValue::kDamageResist)) / 250);
+			float a_result = (a_actor->equippedWeight + (levelweight * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeight + 1));
 			if (a_actor->IsPlayerRef()) {
 				level = (level < 60 ? level : 60);
-				a_result = (a_actor->equippedWeight + (0.5f * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + (a_actor->GetActorValue(RE::ActorValue::kDamageResist)) / 1850);
+				a_result = (a_actor->equippedWeight + (levelweightplayer * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeightPlayer + 1));
+			}
+
+			//KFC Original Recipe.
+			if (ptr->UseOldFormula) {
+				a_result = (a_actor->equippedWeight + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
 			}
 
 			if (a_actor && a_actor->race->HasKeywordString("ActorTypeCreature") || a_actor->race->HasKeywordString("ActorTypeDwarven")) {
@@ -160,7 +177,7 @@ namespace PoiseMod {  // Papyrus Functions
 						RE::TESRace* a_mapRace = idx.first;
 						if (a_actorRace && a_mapRace) {
 							if (a_actorRace->formID == a_mapRace->formID) {
-								a_result = idx.second[1];
+								a_result = idx.second[0];
 								break;
 							}
 						}
@@ -177,19 +194,23 @@ namespace PoiseMod {  // Papyrus Functions
 				if (!veffect->GetBaseObject()) {
 					continue;
 				}
-				if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseIncrease")) {
-					auto resultingBuff = (veffect->magnitude);
-					a_result += resultingBuff;	// victim has poise hp buff	
-												//conner: i made this additive not multiplicative. Easier to work with.
-				}
-				if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseDecrease")) {
-					auto resultingNerf = (veffect->magnitude);
-					a_result -= resultingNerf;	// victim poise hp nerf
-												//conner: this loops through and adds every buff on actor.
+				if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseHealthFlat")) {
+					auto buffFlat = (veffect->magnitude);
+					a_result += buffFlat;  //conner: additive instead of multiplicative buff.
 				}
 				if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("MagicArmorSpell")) {
 					auto armorflesh = (0.1f * veffect->magnitude);
 					a_result += armorflesh;
+				}
+				if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseIncrease")) {
+					auto buffPercent = (veffect->magnitude / 100.00f);	// convert to percentage
+					auto resultingBuff = (a_result * buffPercent);
+					a_result += resultingBuff;	// victim has poise hp buff
+				}
+				if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseDecrease")) {
+					auto nerfPercent = (veffect->magnitude / 100.00f);	// convert to percentage
+					auto resultingNerf = (a_result * nerfPercent);
+					a_result -= resultingNerf;	// victim poise hp nerf
 				}
 			}
 
