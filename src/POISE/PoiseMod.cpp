@@ -85,6 +85,7 @@ Loki::PoiseMod::PoiseMod() {
     this->NPCRagdollReplacer    = ini.GetBoolValue("MAIN", "bNPCRagdollReplacer", false);
     this->PoiseRegenEnabled     = ini.GetBoolValue("MAIN", "bPoiseRegen", false);
     this->TrueHUDBars           = ini.GetBoolValue("MAIN", "bTrueHUDBars", false);
+	this->ForceThirdPerson      = ini.GetBoolValue("MAIN", "bForceFirstPersonStagger", false);
 	this->SpellPoise            = ini.GetBoolValue("MAIN", "bSpellPoise", false);
 	this->PlayerSpellPoise      = ini.GetBoolValue("MAIN", "bPlayerSpellPoise", false);
 
@@ -130,6 +131,7 @@ Loki::PoiseMod::PoiseMod() {
 
     this->UseOldFormula             = ini.GetBoolValue("FORMULAE", "bUseOldFormula", false);
 	this->PhysicalDmgWeight         = (float)ini.GetDoubleValue("FORMULAE", "fPhysicalDmgWeight", -1.00f);
+	this->PhysicalDmgWeightPlayer   = (float)ini.GetDoubleValue("FORMULAE", "fPhysicalDmgWeightPlayer", -1.00f);
 	this->MaxPoiseLevelWeight       = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseLevelWeight", -1.00f);
 	this->MaxPoiseLevelWeightPlayer = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseLevelWeightPlayer", -1.00f);
 	this->ArmorLogarithmSlope       = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseArmorRatingSlope", -1.00f);
@@ -262,7 +264,7 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
 							    if (effect->data.castingType == RE::MagicSystem::CastingType::kConcentration) {
                                     SpellPoise *= 0.2f;
                                 }
-							    a_result = 0.8f * SpellPoise;
+							    a_result = 0.2f * SpellPoise;
 						    } 
                         }
 				    } 
@@ -282,7 +284,7 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
 							    if (effect2->data.castingType == RE::MagicSystem::CastingType::kConcentration) {
 								    SpellPoise *= 0.2f;
 							    }
-							    a_result = 0.8f * SpellPoise;
+							    a_result = 0.2f * SpellPoise;
 						    } 
 				        }          
                     }
@@ -358,7 +360,14 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
                 //Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
                 bool isBlk = false;
                 static RE::BSFixedString str = NULL;
+				auto cam = RE::PlayerCamera::GetSingleton();
+
                 if ((float)actor->pad0EC <= 0.00f) {
+					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
+						if (cam->IsInFirstPerson()) {
+							cam->ForceThirdPerson();    //if player is in first person, stagger them in thirdperson.
+						}
+					}
                     actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
                     actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
                     if (TrueHUDControl::GetSingleton()->g_trueHUD) {
@@ -390,6 +399,11 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
                     }
                 }
                 else if ((float)actor->pad0EC <= threshhold0 || (float)actor->pad0EC <= 2.00f) {
+					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
+						if (cam->IsInFirstPerson()) {
+							cam->ForceThirdPerson();
+						}
+					}
                     actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
                     if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) { // if creature, use normal beh
                         actor->SetGraphVariableFloat(ptr->staggerMagn, 0.75f);
@@ -607,8 +621,13 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
     if (!ptr->UseOldFormula) {
 		float Damage = a_hitData.physicalDamage;
 		float Plevel = ptr->PhysicalDmgWeight;
+		float Plevel2 = ptr->PhysicalDmgWeightPlayer;
 		//RE::ConsoleLog::GetSingleton()->Print("Physical damage done by attack is %f", Damage);
-		a_result += (Damage * Plevel);
+		if (aggressor->IsPlayerRef()) {
+			a_result += (Damage * Plevel2);
+		} else {
+			a_result += (Damage * Plevel);
+        }
 	}
 
 
@@ -963,11 +982,18 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
     auto threshhold2 = maxPoise * ptr->poiseBreakThreshhold2;
 
 	//Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
-    bool isBlk = false;
+	bool isBlk = false;
     static RE::BSFixedString str = NULL;
     a_actor->GetGraphVariableBool(ptr->isBlocking, isBlk);
 
+	auto cam = RE::PlayerCamera::GetSingleton();
+
     if ((float)a_actor->pad0EC <= 0.00f && a_actor->Is3DLoaded()) {
+		if (ptr->ForceThirdPerson && a_actor->IsPlayerRef()) {
+			if (cam->IsInFirstPerson()) {
+		         cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
+            }
+        }
         a_actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
         a_actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
         if (TrueHUDControl::GetSingleton()->g_trueHUD) {
@@ -1002,6 +1028,11 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
         }
     } 
     else if (a_actor->Is3DLoaded() && (float)a_actor->pad0EC < threshhold0 || (float)a_actor->pad0EC < 2.00f ) {
+		if (a_actor->IsPlayerRef()) {
+			if (cam->IsInFirstPerson()) {
+				cam->ForceThirdPerson();
+			}
+		}
         a_actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
         if (a_actor->HasKeyword(ptr->kCreature) || a_actor->HasKeyword(ptr->kDwarven)) { // if creature, use normal beh
             a_actor->SetGraphVariableFloat(ptr->staggerMagn, 0.75f);

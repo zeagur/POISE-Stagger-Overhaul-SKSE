@@ -32,9 +32,9 @@ namespace Loki {
         float RapierMult, PikeMult, SpearMult, HalberdMult, QtrStaffMult, CaestusMult, ClawMult, WhipMult;
 		float PowerAttackMult, BlockedMult, BashMult, HyperArmourMult, NPCHyperArmourMult, SpellHyperArmourMult, NPCSpellHyperArmourMult;
 		float BashParryMult, GlobalPHealthMult, GlobalPDmgMult, GlobalPlayerPHealthMult, GlobalPlayerPDmgMult;
-		float MaxPoiseLevelWeight, MaxPoiseLevelWeightPlayer, PhysicalDmgWeight, ArmorLogarithmSlope, ArmorLogarithmSlopePlayer, WardPowerWeight; 
+		float MaxPoiseLevelWeight, MaxPoiseLevelWeightPlayer, PhysicalDmgWeight, PhysicalDmgWeightPlayer, ArmorLogarithmSlope, ArmorLogarithmSlopePlayer, WardPowerWeight; 
         bool PlayerPoiseEnabled, NPCPoiseEnabled, PlayerRagdollReplacer, NPCRagdollReplacer, PoiseRegenEnabled, TrueHUDBars;
-		bool ScalePHealthGlobal, ScalePDmgGlobal, SpellPoise, PlayerSpellPoise, UseOldFormula; 
+		bool ScalePHealthGlobal, ScalePDmgGlobal, SpellPoise, PlayerSpellPoise, ForceThirdPerson, UseOldFormula; 
 
         const RE::BSFixedString ae_Stagger = "staggerStart";
         const RE::BSFixedString staggerDire = "staggerDirection";
