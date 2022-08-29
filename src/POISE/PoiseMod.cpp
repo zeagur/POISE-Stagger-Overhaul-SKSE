@@ -1,4 +1,5 @@
 #include "PoiseMod.h"
+#include "ActorCache.h"
 
 void Loki::PoiseMod::ReadPoiseTOML() {
 
@@ -136,6 +137,10 @@ Loki::PoiseMod::PoiseMod() {
 	this->MaxPoiseLevelWeightPlayer = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseLevelWeightPlayer", -1.00f);
 	this->ArmorLogarithmSlope       = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseArmorRatingSlope", -1.00f);
 	this->ArmorLogarithmSlopePlayer = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseArmorRatingSlopePlayer", -1.00f);
+	this->HyperArmorLogSlope        = (float)ini.GetDoubleValue("FORMULAE", "fHyperArmorSlopePlayer", -1.00f);
+	this->SpellHyperLogSlope        = (float)ini.GetDoubleValue("FORMULAE", "fSpellHyperArmorSlopePlayer", -1.00f);
+	this->CreatureHPMultiplier      = (float)ini.GetDoubleValue("FORMULAE", "fCreatureTOMLMaxPoiseMult", -1.00f);
+	this->CreatureDMGMultiplier     = (float)ini.GetDoubleValue("FORMULAE", "fCreatureTOMLPoiseDmgMult", -1.00f);
 	this->WardPowerWeight           = (float)ini.GetDoubleValue("FORMULAE", "fWardPowerWeight", -1.00f);
 
 
@@ -638,7 +643,8 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 			    RE::TESRace* a_mapRace = idx.first;
 			    if (a_actorRace && a_mapRace) {
 				    if (a_actorRace->formID == a_mapRace->formID) {
-				        a_result = idx.second[1];
+						float CreatureMult = ptr->CreatureDMGMultiplier;
+				        a_result = CreatureMult * idx.second[1];
 						break;
 			        } 
 			    }
@@ -727,8 +733,9 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
     if (atk) {
 		if (a_actor->IsPlayerRef()) {
 			float LightArmorMult = (a_actor->GetBaseActorValue(RE::ActorValue::kLightArmor));
+			float Slope = ptr->HyperArmorLogSlope; //default = 50
 			if (LightArmorMult >= 20.0f) {
-				float fLogarithm = ( (LightArmorMult - 20) / 50 + 1);
+				float fLogarithm = ( (LightArmorMult - 20) / Slope + 1);
 				double PlayerHyperArmourMult = (0.8 - log2(fLogarithm) * 0.4);
 				//RE::ConsoleLog::GetSingleton()->Print("logarithm value: %f", fLogarithm);
 				//RE::ConsoleLog::GetSingleton()->Print("Player hyper armor LOG Calculation: %f", PlayerHyperArmourMult);
@@ -754,8 +761,9 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
     if (castleft || castright || castdual) {
 		if (a_actor->IsPlayerRef()) { 
 		float LightArmorMult = (a_actor->GetBaseActorValue(RE::ActorValue::kLightArmor));
+        float Slope = ptr->SpellHyperLogSlope; //default = 60
 		   if (LightArmorMult >= 20.0f) {
-			   float fLogarithm = ((LightArmorMult - 20) / 60 + 1);
+			   float fLogarithm = ((LightArmorMult - 20) / Slope + 1);
 			   double PlayerHyperArmourMult = (1.5 - log2(fLogarithm) * 0.8);
 			   //RE::ConsoleLog::GetSingleton()->Print("spell logarithm value: %f", fLogarithm);
 			   //RE::ConsoleLog::GetSingleton()->Print("Player spell HyperArmor LOG Calculation: %f", PlayerHyperArmourMult);
@@ -798,7 +806,6 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 }
 
 float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor) {
-
     auto ptr = Loki::PoiseMod::GetSingleton();
 
 	//Scales logarithmically with armorrating.
@@ -808,12 +815,13 @@ float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor) {
 	float ArmorRating = a_actor->GetActorValue(RE::ActorValue::kDamageResist);
 	float ArmorWeight = ptr->ArmorLogarithmSlope;
 	float ArmorWeightPlayer = ptr->ArmorLogarithmSlopePlayer;
+	float RealWeight = ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_actor);
 
 	level = (level < 100 ? level : 100);
-	float a_result = (a_actor->equippedWeight + (levelweight * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeight + 1));
+	float a_result = (RealWeight + (levelweight * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeight + 1));
 	if (a_actor->IsPlayerRef()) {
 		level = (level < 60 ? level : 60);
-		a_result = (a_actor->equippedWeight + (levelweightplayer * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeightPlayer + 1));
+		a_result = (RealWeight + (levelweightplayer * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeightPlayer + 1));
     }
 
 
@@ -821,7 +829,7 @@ float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor) {
 
     //KFC Original Recipe.
     if (ptr->UseOldFormula) {
-		a_result = (a_actor->equippedWeight + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
+		a_result = (RealWeight + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
     }
 
     if (a_actor && a_actor->race->HasKeywordString("ActorTypeCreature") || a_actor->race->HasKeywordString("ActorTypeDwarven")) {
@@ -831,7 +839,8 @@ float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor) {
 			    RE::TESRace* a_mapRace = idx.first;
 			    if (a_actorRace && a_mapRace) {
 				    if (a_actorRace->formID == a_mapRace->formID) {
-						a_result = idx.second[0];
+						float CreatureMult = ptr->CreatureHPMultiplier;
+						a_result = CreatureMult * idx.second[0];
 						break;
 			        } 
 			    }
@@ -933,7 +942,6 @@ float Loki::PoiseMod::GetSubmergedLevel(RE::Actor* a_actor, float a_zPos, RE::TE
 }
 
 void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData) {
-
     auto ptr = Loki::PoiseMod::GetSingleton();
 
     using HitFlag = RE::HitData::Flag;
@@ -962,6 +970,7 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
         RE::ConsoleLog::GetSingleton()->Print("Aggressor's Poise Damage: %f", dmg);
         RE::ConsoleLog::GetSingleton()->Print("-");
         RE::ConsoleLog::GetSingleton()->Print("Victim's Weight: %f", a_actor->GetWeight());
+		RE::ConsoleLog::GetSingleton()->Print("Victim's EquipWeight: %f", ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_actor));
         RE::ConsoleLog::GetSingleton()->Print("Victim's Current Poise Health: %d", a_actor->pad0EC);
         RE::ConsoleLog::GetSingleton()->Print("Victim's Max Poise Health %f", CalculateMaxPoise(a_actor));
         RE::ConsoleLog::GetSingleton()->Print("---");

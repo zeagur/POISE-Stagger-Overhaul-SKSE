@@ -1,4 +1,5 @@
 #include "TrueHUDControl.h"
+#include "ActorCache.h"
 
 Loki::TrueHUDControl::TrueHUDControl() {
     CSimpleIniA ini;
@@ -25,17 +26,18 @@ float Loki::TrueHUDControl::GetMaxSpecial([[maybe_unused]] RE::Actor* a_actor) {
 	float ArmorRating = a_actor->GetActorValue(RE::ActorValue::kDamageResist);
 	float ArmorWeight = ptr->ArmorLogarithmSlope;
 	float ArmorWeightPlayer = ptr->ArmorLogarithmSlopePlayer;
+	float RealWeight = ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_actor);
 
 	level = (level < 100 ? level : 100);
-	float a_result = (a_actor->equippedWeight + (levelweight * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeight + 1));
+	float a_result = (RealWeight + (levelweight * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeight + 1));
 	if (a_actor->IsPlayerRef()) {
 		level = (level < 60 ? level : 60);
-		a_result = (a_actor->equippedWeight + (levelweightplayer * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeightPlayer + 1));
+		a_result = (RealWeight + (levelweightplayer * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeightPlayer + 1));
 	}
 
 	//KFC Original Recipe.
     if (ptr->UseOldFormula) {
-		a_result = (a_actor->equippedWeight + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
+		a_result = (RealWeight + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
 	}
 
     if (a_actor && a_actor->race->HasKeywordString("ActorTypeCreature") || a_actor->race->HasKeywordString("ActorTypeDwarven")) {
@@ -45,7 +47,8 @@ float Loki::TrueHUDControl::GetMaxSpecial([[maybe_unused]] RE::Actor* a_actor) {
 				RE::TESRace* a_mapRace = idx.first;
 				if (a_actorRace && a_mapRace) {
 					if (a_actorRace->formID == a_mapRace->formID) {
-						a_result = idx.second[0];
+						float CreatureMult = ptr->CreatureHPMultiplier;
+						a_result = CreatureMult * idx.second[0];
 						break;
 					}
 				}

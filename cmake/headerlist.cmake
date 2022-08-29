@@ -4,4 +4,5 @@ set(headers ${headers}
 	src/POISE/PoiseMod.h
 	src/POISE/TrueHUDAPI.h
 	src/POISE/TrueHUDControl.h
+	src/ActorCache.h
 )

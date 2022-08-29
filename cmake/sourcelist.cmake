@@ -4,4 +4,5 @@ set(sources ${sources}
 	src/PCH.cpp
 	src/POISE/PoiseMod.cpp
 	src/POISE/TrueHUDControl.cpp
+	src/ActorCache.cpp
 )
