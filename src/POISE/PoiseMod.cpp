@@ -87,7 +87,7 @@ Loki::PoiseMod::PoiseMod() {
     this->PoiseRegenEnabled     = ini.GetBoolValue("MAIN", "bPoiseRegen", false);
     this->TrueHUDBars           = ini.GetBoolValue("MAIN", "bTrueHUDBars", false);
 	this->ForceThirdPerson      = ini.GetBoolValue("MAIN", "bForceFirstPersonStagger", false);
-	this->SpellPoise            = ini.GetBoolValue("MAIN", "bSpellPoise", false);
+	this->SpellPoise            = ini.GetBoolValue("MAIN", "bNPCSpellPoise", false);
 	this->PlayerSpellPoise      = ini.GetBoolValue("MAIN", "bPlayerSpellPoise", false);
 
     this->poiseBreakThreshhold0 = (float)ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold0", -1.00f);
@@ -141,12 +141,18 @@ Loki::PoiseMod::PoiseMod() {
 	this->SpellHyperLogSlope        = (float)ini.GetDoubleValue("FORMULAE", "fSpellHyperArmorSlopePlayer", -1.00f);
 	this->CreatureHPMultiplier      = (float)ini.GetDoubleValue("FORMULAE", "fCreatureTOMLMaxPoiseMult", -1.00f);
 	this->CreatureDMGMultiplier     = (float)ini.GetDoubleValue("FORMULAE", "fCreatureTOMLPoiseDmgMult", -1.00f);
+	this->SpellPoiseEffectWeight    = (float)ini.GetDoubleValue("FORMULAE", "fSpellPoiseEffectWeight", -1.00f);
+	this->SpellPoiseConcMult        = (float)ini.GetDoubleValue("FORMULAE", "fSpellPoiseConcentrationMult", -1.00f);
 	this->WardPowerWeight           = (float)ini.GetDoubleValue("FORMULAE", "fWardPowerWeight", -1.00f);
 
 
     if (auto dataHandle = RE::TESDataHandler::GetSingleton(); dataHandle) {
         poiseDelaySpell  = dataHandle->LookupForm<RE::SpellItem>(0xD62, "loki_POISE.esp");
         poiseDelayEffect = dataHandle->LookupForm<RE::EffectSetting>(0xD63, "loki_POISE.esp");
+		HardcodeFus1     = dataHandle->LookupForm<RE::EffectSetting>(0x7F82E, "Skyrim.esm");
+		HardcodeFus2     = dataHandle->LookupForm<RE::EffectSetting>(0x13E08, "Skyrim.esm");
+        //Conner: this fus hardcode is only for 1 update. The next update should provide ini list of magic effects to instantly stagger.
+       
         //PoiseDmgNerf     = dataHandle->LookupForm<RE::BGSKeyword>(0x433C, "loki_POISE.esp");
         //PoiseDmgBuff     = dataHandle->LookupForm<RE::BGSKeyword>(0x433B, "loki_POISE.esp");
         //PoiseHPNerf      = dataHandle->LookupForm<RE::BGSKeyword>(0x433A, "loki_POISE.esp");
@@ -195,10 +201,12 @@ void Loki::PoiseMod::InstallIsActorKnockdownHook() {
 	logger::info("isActorKnockdown hook injected"sv);
 }
 
+/*
 void Loki::PoiseMod::InstallMagicEventSink() {
     auto sourceHolder = RE::ScriptEventSourceHolder::GetSingleton();
     if (sourceHolder) { sourceHolder->AddEventSink(PoiseMagicDamage::GetSingleton()); }
 }
+*/
 
 /*
 * im keeping this here because i always forget how to hook vfuncs
@@ -216,83 +224,77 @@ Loki::PoiseMagicDamage* Loki::PoiseMagicDamage::GetSingleton() {
     return &singleton;
 }
 
-auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BSTEventSource<RE::TESHitEvent>*) -> RE::BSEventNotifyControl {
-    if (!a_event || !a_event->projectile) {
-        return RE::BSEventNotifyControl::kContinue;
+void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster, RE::Projectile* a_projectile, RE::TESObjectREFR* a_target)
+{
+	if (!a_magicCaster || !a_projectile) {
+		//logger::info("Spell Poise: either no caster or no projectile.");
+		return;
     }
-    if (!a_event->target || !a_event->cause) {
-        return RE::BSEventNotifyControl::kContinue;
+
+	if (!a_target) {
+		//logger::info("Spell Poise: no target found.");
+		return;
     } 
 
     else {	   
-        auto MAttacker = a_event->cause.get()->As<RE::Actor>();
+        auto MAttacker = a_magicCaster->GetCasterAsActor();
 		if (MAttacker == NULL) {
-			return RE::BSEventNotifyControl::kContinue;
+			return;
         }           
 		else if (MAttacker) {
-            if (auto actor = a_event->target.get()->As<RE::Actor>(); actor) {
+			if (auto actor = a_target->As<RE::Actor>(); actor) {
                 auto ptr = Loki::PoiseMod::GetSingleton();
-				//logger::info("Projectile calculation being attempted");
+				//logger::info("Valid attacker and aggressor, projectile calculation being attempted!");
                 float a_result = 0.00f;
+				float SpellMult = ptr->SpellPoiseEffectWeight;
 
-                if (!ptr->SpellPoise) {
-					return RE::BSEventNotifyControl::kContinue;
+                if (!ptr->SpellPoise && !MAttacker->IsPlayerRef()) {
+					return;
                 }
+
+                if (!ptr->PlayerSpellPoise && MAttacker->IsPlayerRef()) {
+					return;
+                }
+
 				auto avHealth = actor->GetActorValue(RE::ActorValue::kHealth);
 				auto avParalysis = actor->GetActorValue(RE::ActorValue::kParalysis);
 				if (avHealth <= 0.05f || actor->IsInKillMove() || avParalysis) {
-					return RE::BSEventNotifyControl::kContinue;
+					//logger::info("target is in state ineligible for poise dmg");
+					return;
 				}
 
-				auto lspell = MAttacker->selectedSpells[0];
-				auto rspell = MAttacker->selectedSpells[1];    
-                if (!lspell && !rspell) {
-                    return RE::BSEventNotifyControl::kContinue;
+                auto Spell = a_projectile->spell->As<RE::MagicItem>();
+                if (!Spell) {
+					//logger::info("Could not find spell from projectile");
+					return;
                 }
-
-                // this should be using switch logic, not shitty if loop. Switch later. 
-                // also btw if we hold concentration spell in left hand and high BaseCost spell in righthand, the hits from the Conc spell will use the righthand BaseCost.
-                // we dont check if the target got hit by left or right hand spell. soo...............
-                // AKA this is completely broken and stupid roflmao. Remove this when loki gets new magic effect hook!!!
-                if (lspell) {
-				    if (auto effect = lspell->avEffectSetting->As<RE::EffectSetting>(); effect) {        
-                        if (effect->IsHostile() && effect->IsDetrimental() && !effect->HasArchetype(RE::EffectArchetypes::ArchetypeID::kCloak)) {
-						    float SpellPoise = effect->data.baseCost;
-							float Level = (MAttacker->GetLevel());
-							a_result = (1.2f * SpellPoise) + (0.08f * Level);
-							//RE::ConsoleLog::GetSingleton()->Print("Poise Damage from Cum-> %f", a_result);    kCloak
-
-						    if (MAttacker->IsPlayerRef()) {
-								if (!ptr->PlayerSpellPoise) {
-									return RE::BSEventNotifyControl::kContinue;
-								}
-							    if (effect->data.castingType == RE::MagicSystem::CastingType::kConcentration) {
-                                    SpellPoise *= 0.2f;
-                                }
-							    a_result = 0.2f * SpellPoise;
-						    } 
-                        }
-				    } 
+				auto Effect = Spell->GetCostliestEffectItem();
+                if (!Effect) {
+					//logger::info("Could not find applied effect from projectile");
+					return;
                 }
-                else if (rspell) {
-                    if (auto effect2 = rspell->avEffectSetting->As<RE::EffectSetting>(); effect2) {
-						if (effect2->IsHostile() && effect2->IsDetrimental() && !effect2->HasArchetype(RE::EffectArchetypes::ArchetypeID::kCloak)) {
-						    float SpellPoise = effect2->data.baseCost;
-							float Level = (MAttacker->GetLevel());
-							a_result = (1.2f * SpellPoise) + (0.08f * Level);
-							//RE::ConsoleLog::GetSingleton()->Print("Poise Damage from Cum-> %f", a_result);   
+				float Magnitude = Effect->GetMagnitude();
 
-						    if (MAttacker->IsPlayerRef()) {
-								if (!ptr->PlayerSpellPoise) {
-									return RE::BSEventNotifyControl::kContinue;
-								}
-							    if (effect2->data.castingType == RE::MagicSystem::CastingType::kConcentration) {
-								    SpellPoise *= 0.2f;
-							    }
-							    a_result = 0.2f * SpellPoise;
-						    } 
-				        }          
+				auto EffectSetting = a_projectile->avEffect->As<RE::EffectSetting>();
+				if (!EffectSetting) {
+					//logger::info("Could not find MagicEffect from projectile");
+					return;
+				}
+
+                if (EffectSetting->IsHostile() && EffectSetting->IsDetrimental()) {
+					a_result = Magnitude * SpellMult;
+                    if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
+						float SpellConcMult = ptr->SpellPoiseConcMult;
+						a_result *= SpellConcMult;
                     }
+					//RE::ConsoleLog::GetSingleton()->Print("Poise Damage From Cum-> %f", a_result);
+				}
+				else if (EffectSetting == ptr->HardcodeFus1 || EffectSetting == ptr->HardcodeFus2) {
+					a_result = Magnitude * SpellMult;
+                }
+                else {
+					//RE::ConsoleLog::GetSingleton()->Print("spell is not hostile, no poise dmg");
+					return;
                 }
 
 				bool blk;
@@ -306,11 +308,8 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
 					a_result = 0.00f;
 				}
 
-				//if actor has ward up just negate all spell poise meh.
-				float WardPower = actor->GetActorValue(RE::ActorValue::kWardPower);
-                if (WardPower >= 25.0f) {
-				    a_result = 0.00f;
-                }
+				//not needed to calculate ward effect, let vanilla ward mechanics handle this.
+
 
                 if (blk) {
 					if (actor->IsPlayerRef()) {
@@ -366,6 +365,51 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
                 bool isBlk = false;
                 static RE::BSFixedString str = NULL;
 				auto cam = RE::PlayerCamera::GetSingleton();
+
+                if (EffectSetting == ptr->HardcodeFus1 || EffectSetting == ptr->HardcodeFus2)
+				{
+					actor->pad0EC = 0;
+					//logger::info("magic effect is supposed to instantly stagger, poise set to 0.");
+                }
+
+                if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
+					//RE::ConsoleLog::GetSingleton()->Print("magic event is from concentration spell");
+					if ((float)actor->pad0EC <= 0.00f) {
+						if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
+							if (cam->IsInFirstPerson()) {
+								cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
+							}
+						}
+						if (TrueHUDControl::GetSingleton()->g_trueHUD) {
+							TrueHUDControl::GetSingleton()->g_trueHUD->FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
+						}
+						actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);					  // set direction
+						actor->pad0EC = static_cast<std::uint32_t>(maxPoise);						  // remember earlier when we calculated max poise health?
+						if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {  // if creature, use normal beh
+							actor->SetGraphVariableFloat(ptr->staggerMagn, 1.00f);
+							actor->NotifyAnimationGraph(ptr->ae_Stagger);  // play animation
+						} else {
+							if (actor->HasKeyword(ptr->kDragon)) {
+								if (stagDir > 0.25f && stagDir < 0.75f) {
+									str = ptr->poiseLargestFwd;
+								} else {
+									str = ptr->poiseLargestBwd;
+								}
+								actor->NotifyAnimationGraph(str);  // if those, play tier 4
+							} else {
+								if (stagDir > 0.25f && stagDir < 0.75f) {
+									str = ptr->poiseMedFwd;
+								} else {
+									str = ptr->poiseMedBwd;
+								}
+								actor->NotifyAnimationGraph(str);  // if not those, play tier 2
+							}
+						}                    
+                    } else {
+						return; // Concentration spells spam magic poise calculation. To prevent stupid staggerlocks, we only stagger once per Poise meter for concentration spells. 
+                    }
+                }
+
 
                 if ((float)actor->pad0EC <= 0.00f) {
 					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
@@ -481,7 +525,7 @@ auto Loki::PoiseMagicDamage::ProcessEvent(const RE::TESHitEvent* a_event, RE::BS
             }
         }
     }
-    return RE::BSEventNotifyControl::kContinue;
+    return;
 }
 
 /*
@@ -964,7 +1008,8 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
     if (a_actor->pad0EC > 100000) a_actor->pad0EC = 0;  // this fixed it...
     if (ptr->ConsoleInfoDump) {
         RE::ConsoleLog::GetSingleton()->Print("---");
-        RE::ConsoleLog::GetSingleton()->Print("Aggessor's Weight: %f", a_hitData.aggressor.get()->GetWeight());
+        RE::ConsoleLog::GetSingleton()->Print("Aggressor's Weight: %f", a_hitData.aggressor.get()->GetWeight());
+		RE::ConsoleLog::GetSingleton()->Print("Aggressor's EquipWeight: %f", ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_hitData.aggressor.get().get()));
         RE::ConsoleLog::GetSingleton()->Print("Aggressor's Current Poise Health: %d", a_hitData.aggressor.get()->pad0EC);
         RE::ConsoleLog::GetSingleton()->Print("Aggresssor's Max Poise Health: %f", CalculateMaxPoise(a_hitData.aggressor.get().get()));
         RE::ConsoleLog::GetSingleton()->Print("Aggressor's Poise Damage: %f", dmg);

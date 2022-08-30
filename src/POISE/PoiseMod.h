@@ -6,12 +6,35 @@
 
 namespace Loki {
 
-    class PoiseMagicDamage : public RE::BSTEventSink<RE::TESHitEvent> {
-
+    class PoiseMagicDamage
+	{
     public:
         static PoiseMagicDamage* GetSingleton();
+		static void PoiseCalculateMagic(RE::MagicCaster* a_magicCaster, RE::Projectile* a_projectile, RE::TESObjectREFR* a_target);
 
-        auto ProcessEvent(const RE::TESHitEvent* a_event, RE::BSTEventSource<RE::TESHitEvent>* a_eventSource)->RE::BSEventNotifyControl override;
+        //auto ProcessEvent(const RE::TESHitEvent* a_event, RE::BSTEventSource<RE::TESHitEvent>* a_eventSource)->RE::BSEventNotifyControl override;
+
+		// This hook includes magic projectile from spells and enchanted arrows
+		struct MagicProjectileHitHook
+		{
+			static void thunk(RE::MagicCaster* a_magicCaster, void* a_unk1, RE::Projectile* a_projectile, RE::TESObjectREFR* a_target, float a_unk2, float a_unk3)
+			{
+				//auto attacker = a_magicCaster->GetCaster();
+
+				func(a_magicCaster, a_unk1, a_projectile, a_target, a_unk2, a_unk3);
+				GetSingleton()->PoiseCalculateMagic(a_magicCaster, a_projectile, a_target);
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+
+        static void InstallNFACMagicHook()
+		{
+#ifdef SKYRIM_AE
+			stl::write_thunk_call<MagicProjectileHitHook>(REL::ID(44206).address() + 0x218);
+#else
+			stl::write_thunk_call<MagicProjectileHitHook>(REL::ID(43015).address() + 0x216);
+#endif
+		}
 
     protected:
         PoiseMagicDamage() = default;
@@ -33,7 +56,7 @@ namespace Loki {
         float RapierMult, PikeMult, SpearMult, HalberdMult, QtrStaffMult, CaestusMult, ClawMult, WhipMult;
 		float PowerAttackMult, BlockedMult, BashMult, HyperArmourMult, NPCHyperArmourMult, SpellHyperArmourMult, NPCSpellHyperArmourMult;
 		float BashParryMult, GlobalPHealthMult, GlobalPDmgMult, GlobalPlayerPHealthMult, GlobalPlayerPDmgMult;
-		float MaxPoiseLevelWeight, MaxPoiseLevelWeightPlayer, PhysicalDmgWeight, PhysicalDmgWeightPlayer;
+		float MaxPoiseLevelWeight, MaxPoiseLevelWeightPlayer, PhysicalDmgWeight, PhysicalDmgWeightPlayer, SpellPoiseEffectWeight, SpellPoiseConcMult;
 		float ArmorLogarithmSlope, ArmorLogarithmSlopePlayer, WardPowerWeight, CreatureHPMultiplier, CreatureDMGMultiplier, HyperArmorLogSlope, SpellHyperLogSlope; 
         bool PlayerPoiseEnabled, NPCPoiseEnabled, PlayerRagdollReplacer, NPCRagdollReplacer, PoiseRegenEnabled, TrueHUDBars;
 		bool ScalePHealthGlobal, ScalePDmgGlobal, SpellPoise, PlayerSpellPoise, ForceThirdPerson, UseOldFormula; 
@@ -67,6 +90,11 @@ namespace Loki {
         RE::BGSKeyword* kTroll = NULL;
         RE::BGSKeyword* WeapMaterialSilver = NULL;
 
+        RE::EffectSetting* HardcodeFus1 = NULL;
+		RE::EffectSetting* HardcodeFus2 = NULL;
+        //hardcode fus only temporarily, next update switch to ini table of MagicEffects to stagger.
+ 
+ 
         //RE::BGSKeyword* PoiseDmgNerf = NULL;
         //RE::BGSKeyword* PoiseDmgBuff = NULL;
         //RE::BGSKeyword* PoiseHPNerf = NULL;
@@ -81,10 +109,11 @@ namespace Loki {
         static void InstallStaggerHook();
         static void InstallWaterHook();
         static void InstallIsActorKnockdownHook();
-        static void InstallMagicEventSink();
+        //static void InstallMagicEventSink();
 
         static float CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_actor);
         static float CalculateMaxPoise(RE::Actor* a_actor);
+
 
     private:
         static bool IsActorKnockdown(RE::Character* a_this, std::int64_t a_unk);

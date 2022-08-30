@@ -3,7 +3,7 @@
 bool TESFormDeleteEventHandler::Register()
 {
 	static TESFormDeleteEventHandler singleton;
-	auto                        ScriptEventSource = RE::ScriptEventSourceHolder::GetSingleton();
+	auto ScriptEventSource = RE::ScriptEventSourceHolder::GetSingleton();
 
 	if (!ScriptEventSource) {
 		logger::error("Script event source not found");
@@ -20,7 +20,7 @@ bool TESFormDeleteEventHandler::Register()
 bool TESEquipEventEventHandler::Register()
 {
 	static TESEquipEventEventHandler singleton;
-	auto                             ScriptEventSource = RE::ScriptEventSourceHolder::GetSingleton();
+	auto ScriptEventSource = RE::ScriptEventSourceHolder::GetSingleton();
 
 	if (!ScriptEventSource) {
 		logger::error("Script event source not found");
