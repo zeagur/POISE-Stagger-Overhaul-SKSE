@@ -1,6 +1,8 @@
 #include "PoiseMod.h"
 #include "ActorCache.h"
 
+std::shared_mutex ConnerLock;
+
 void Loki::PoiseMod::ReadPoiseTOML() {
 
     constexpr auto path = L"Data/SKSE/Plugins/loki_POISE";
@@ -273,6 +275,7 @@ Loki::PoiseMagicDamage* Loki::PoiseMagicDamage::GetSingleton() {
 
 void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster, RE::Projectile* a_projectile, RE::TESObjectREFR* a_target)
 {
+	std::lock_guard<std::shared_mutex> lk(ConnerLock);
 	if (!a_magicCaster || !a_projectile) {
 		//logger::info("Spell Poise: either no caster or no projectile.");
 		return;
@@ -602,6 +605,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 
 void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData, RE::TESObjectREFR* a_target)
 {
+	std::lock_guard<std::shared_mutex> lk(ConnerLock);
 	if (!a_target) {
 		return;
 
@@ -1321,24 +1325,14 @@ bool Loki::PoiseMod::IsActorKnockdown(RE::Character* a_this, std::int64_t a_unk)
     auto ptr = Loki::PoiseMod::GetSingleton();
 
     auto avHealth = a_this->GetActorValue(RE::ActorValue::kHealth);
-    if (a_this->IsOnMount() || avHealth <= 0.05f) {
+    if (a_this->IsOnMount() || a_this->IsInMidair() || avHealth <= 0.05f) {
         return _IsActorKnockdown(a_this, a_unk);
     }
 
-    const auto effect = a_this->GetActiveEffectList();
-	if (effect) {
-		for (const auto& aeffect : *effect) {
-			if (!aeffect) {
-				continue;
-			}
-			if (!aeffect->GetBaseObject()) {
-				continue;
-			}
-			if (aeffect->GetBaseObject()->HasArchetype(RE::EffectArchetypes::ArchetypeID::kGrabActor) || aeffect->GetBaseObject()->HasArchetype(RE::EffectArchetypes::ArchetypeID::kTelekinesis)) {
-				return _IsActorKnockdown(a_this, a_unk);
-			}
-		}
-	}
+	auto kGrabbed = a_this->GetActorValue(RE::ActorValue::kGrabbed);
+	if (kGrabbed == 1) {
+		return _IsActorKnockdown(a_this, a_unk);
+	} 
 
     static RE::BSFixedString str = NULL;
 
@@ -1380,8 +1374,8 @@ float Loki::PoiseMod::GetSubmergedLevel(RE::Actor* a_actor, float a_zPos, RE::TE
 }
 
 void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData) {
+	std::lock_guard<std::shared_mutex> lk(ConnerLock);
     auto ptr = Loki::PoiseMod::GetSingleton();
-
     using HitFlag = RE::HitData::Flag;
     RE::FormID kLurker = 0x14495;
 

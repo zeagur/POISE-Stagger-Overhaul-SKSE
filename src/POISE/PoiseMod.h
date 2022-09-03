@@ -135,6 +135,7 @@ namespace Loki {
 #endif
 		}
 
+
     protected:
         PoiseMagicDamage() = default;
         PoiseMagicDamage(const PoiseMagicDamage&) = delete;
