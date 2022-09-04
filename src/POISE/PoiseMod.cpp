@@ -1,7 +1,6 @@
 #include "PoiseMod.h"
 #include "ActorCache.h"
 
-std::shared_mutex ConnerLock;
 
 void Loki::PoiseMod::ReadPoiseTOML() {
 
@@ -275,7 +274,6 @@ Loki::PoiseMagicDamage* Loki::PoiseMagicDamage::GetSingleton() {
 
 void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster, RE::Projectile* a_projectile, RE::TESObjectREFR* a_target)
 {
-	std::lock_guard<std::shared_mutex> lk(ConnerLock);
 	if (!a_magicCaster || !a_projectile) {
 		//logger::info("Spell Poise: either no caster or no projectile.");
 		return;
@@ -605,7 +603,6 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 
 void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData, RE::TESObjectREFR* a_target)
 {
-	std::lock_guard<std::shared_mutex> lk(ConnerLock);
 	if (!a_target) {
 		return;
 
@@ -911,7 +908,6 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_actor) {
 
     // this whole function is BAD and DIRTY but i cant think of any other way at the moment
-
     auto ptr = Loki::PoiseMod::GetSingleton();
 	bool blk, atk, castleft, castright, castdual, aggressorattack;
 	a_actor->GetGraphVariableBool("IsBlocking", blk);
@@ -1374,7 +1370,6 @@ float Loki::PoiseMod::GetSubmergedLevel(RE::Actor* a_actor, float a_zPos, RE::TE
 }
 
 void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData) {
-	std::lock_guard<std::shared_mutex> lk(ConnerLock);
     auto ptr = Loki::PoiseMod::GetSingleton();
     using HitFlag = RE::HitData::Flag;
     RE::FormID kLurker = 0x14495;
