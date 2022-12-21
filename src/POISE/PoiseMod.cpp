@@ -1,5 +1,6 @@
 #include "PoiseMod.h"
 #include "ActorCache.h"
+#include <ctime>
 
 
 void Loki::PoiseMod::ReadPoiseTOML() {
@@ -134,6 +135,7 @@ Loki::PoiseMod::PoiseMod() {
 	this->ForceThirdPerson      = ini.GetBoolValue("MAIN", "bForceFirstPersonStagger", false);
 	this->SpellPoise            = ini.GetBoolValue("MAIN", "bNPCSpellPoise", false);
 	this->PlayerSpellPoise      = ini.GetBoolValue("MAIN", "bPlayerSpellPoise", false);
+	this->StaggerDelay          = (uint32_t)ini.GetLongValue("MAIN", "fStaggerDelay", 3);
 
     this->poiseBreakThreshhold0 = (float)ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold0", -1.00f);
 	this->poiseBreakThreshhold1 = (float)ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold1", -1.00f);
@@ -272,6 +274,47 @@ Loki::PoiseMagicDamage* Loki::PoiseMagicDamage::GetSingleton() {
     return &singleton;
 }
 
+bool Loki::PoiseMod::IsTargetVaild(RE::Actor* a_this, RE::TESObjectREFR& a_target)
+{
+	bool isValid = true;
+	if (a_target.Is(RE::FormType::ActorCharacter)) {
+		auto target = static_cast<RE::Actor*>(&a_target);
+		if (!target->IsDead() && !target->IsHostileToActor(a_this)) {
+			auto targetOwnerHandle = target->GetCommandingActor();
+			auto thisOwnerHandle = a_this->GetCommandingActor();
+			auto targetOwner = targetOwnerHandle ? targetOwnerHandle.get() : nullptr;
+			auto thisOwner = thisOwnerHandle ? thisOwnerHandle.get() : nullptr;
+
+			bool isThisPlayer = a_this->IsPlayerRef();
+			bool isThisTeammate = a_this->IsPlayerTeammate();
+			bool isThisSummonedByPC = a_this->IsSummoned() && thisOwner && thisOwner->IsPlayerRef();
+			bool isTargetPlayer = target->IsPlayerRef();
+			bool isTargetTeammate = target->IsPlayerTeammate();
+			bool isTargetSummonedByPC = target->IsSummoned() && targetOwner && targetOwner->IsPlayerRef();
+			bool isTargetAGuard = target->IsGuard();
+			bool isTargetAMount = target->IsAMount();
+
+			// Prevent player's team from hitting each other, a guard or a mount.
+			if ((isThisPlayer || isThisTeammate || isThisSummonedByPC) &&
+				(isTargetPlayer || isTargetTeammate || isTargetSummonedByPC || isTargetAGuard || isTargetAMount))
+				isValid = false;
+
+			// If the target is commanded by the hostile actor, do not protect it
+			auto targetCommanderHandle = target->GetCommandingActor();
+			if (targetCommanderHandle) {
+				auto targetCommander = targetCommanderHandle.get();
+				if (targetCommander->IsHostileToActor(a_this))
+					isValid = true;
+				else
+					isValid = false;
+			} else
+				isValid = false;
+		}
+	}
+
+	return isValid;
+}
+
 void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster, RE::Projectile* a_projectile, RE::TESObjectREFR* a_target)
 {
 	if (!a_magicCaster || !a_projectile) {
@@ -283,7 +326,6 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 		//logger::info("Spell Poise: no target found.");
 		return;
     } 
-
     else {	   
         auto MAttacker = a_magicCaster->GetCasterAsActor();
 		if (MAttacker == NULL) {
@@ -291,7 +333,24 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
         }           
 		else if (MAttacker) {
 			if (auto actor = a_target->As<RE::Actor>(); actor) {
+				if (!PoiseMod::IsTargetVaild(MAttacker, *a_target)) {
+					return;
+				}
+
                 auto ptr = Loki::PoiseMod::GetSingleton();
+
+				auto nowTime = uint32_t(std::time(nullptr) % UINT32_MAX);
+				auto lastStaggerTime = actor->pad1EC;
+				if (lastStaggerTime > nowTime) {
+					actor->pad1EC = nowTime;
+					lastStaggerTime = 0;
+				} else {
+					if (nowTime - lastStaggerTime < ptr->StaggerDelay) {
+						//logger::info("{} last stagger time {} is less than stagger delay {}", actor->GetName(), lastStaggerTime, ptr->StaggerDelay);
+						return;
+					}
+				}
+
 				//logger::info("Valid attacker and aggressor, projectile calculation being attempted!");
                 float a_result = 0.00f;
 				float SpellMult = ptr->SpellPoiseEffectWeight;
@@ -324,6 +383,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 					//logger::info("Could not find applied effect from projectile");
 					return;
                 }
+
 				float Magnitude = Effect->GetMagnitude();
 
 				auto EffectSetting = a_projectile->avEffect->As<RE::EffectSetting>();
@@ -417,17 +477,58 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 				//	a_result = 0.00f;
 				//}
 
-				actor->pad0EC -= (int)a_result;
-                if (actor->pad0EC > 100000) { actor->pad0EC = 0; }
+				int oriPoise = 0;
+				int poise = 0;
+				float maxPoise = ptr->CalculateMaxPoise(actor);
 
 				if (ptr->StaggerEffectList.contains(EffectSetting)) {
 					actor->pad0EC = 0;
+				} else {
+					auto poiseRef = std::atomic_ref(actor->pad0EC);
+					oriPoise = poiseRef.load();
+					auto newPoise = 0;
+					auto newPoiseSet = 0; 
+					do {
+						poise = poiseRef.load();
+						if (poise > oriPoise){
+							return;
+						}
+						newPoise = poise - (int)a_result;
+						newPoiseSet = newPoise;
+						if (newPoiseSet <= 0) {
+							newPoiseSet = (int)maxPoise;
+						}
+						oriPoise = poise;
+					} while (!poiseRef.compare_exchange_strong(poise, newPoiseSet));
+					oriPoise = poise;
+					poise = newPoise;
+
+					// after change pad0EC's typedef from std::uint32_t to std::int32_t, this case shouldn't happen anymore
+					if (poise > 100000) {
+						//logger::info("PoiseCalculateMagic strange poise value {}", poise);
+						actor->pad0EC = 0;
+					}
 				}
 
-                float maxPoise = ptr->CalculateMaxPoise(actor);
+				if (poise <= 0) {
+					if (!std::atomic_ref(actor->pad1EC).compare_exchange_strong(lastStaggerTime, nowTime)) {
+						//logger::info("PoiseCalculateMagic prevent stagger lock", poise);
+						return;
+					}
+				}
+
                 auto threshhold0 = maxPoise * ptr->poiseBreakThreshhold0;
+				if (threshhold0 <= 2) {
+					threshhold0 = 2;
+				}
                 auto threshhold1 = maxPoise * ptr->poiseBreakThreshhold1;
+				if (threshhold1 <= 5) {
+					threshhold1 = 5;
+				}
                 auto threshhold2 = maxPoise * ptr->poiseBreakThreshhold2;
+				if (threshhold2 <= 10) {
+					threshhold2 = 10;
+				}
 
 				auto hitPos = MAttacker->GetPosition();
 				auto heading = actor->GetHeadingAngle(hitPos, false);
@@ -447,14 +548,14 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 
                 if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
 					//RE::ConsoleLog::GetSingleton()->Print("magic event is from concentration spell");
-					if ((float)actor->pad0EC <= 0.00f) {
+					if (poise <= 0) {
 						if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
 							if (cam->IsInFirstPerson()) {
 								cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
 							}
 						}
 						actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
-						actor->pad0EC = static_cast<std::uint32_t>(maxPoise);	  // remember earlier when we calculated max poise health?
+						//actor->pad0EC = static_cast<std::uint32_t>(maxPoise);	  // remember earlier when we calculated max poise health?
 						if (TrueHUDControl::GetSingleton()->g_trueHUD) {
 							TrueHUDControl::GetSingleton()->g_trueHUD->FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
 						}
@@ -484,14 +585,14 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
                 }
 
 
-                if ((float)actor->pad0EC <= 0.00f) {
+                if (poise <= 0) {
 					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
 						if (cam->IsInFirstPerson()) {
 							cam->ForceThirdPerson();    //if player is in first person, stagger them in thirdperson.
 						}
 					}
                     actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
-                    actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
+                    //actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
                     if (TrueHUDControl::GetSingleton()->g_trueHUD) {
                         TrueHUDControl::GetSingleton()->g_trueHUD->
                             FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
@@ -519,8 +620,10 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
                             actor->NotifyAnimationGraph(str);  // if not those, play tier 2
                         }
                     }
-                }
-                else if ((float)actor->pad0EC <= threshhold0 || (float)actor->pad0EC <= 2.00f) {
+                } else if (poise <= threshhold0) {
+					if (oriPoise <= threshhold0) {
+						return;
+					}
 					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
 						if (cam->IsInFirstPerson()) {
 							cam->ForceThirdPerson();
@@ -551,8 +654,10 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
                             isBlk ? NULL : actor->NotifyAnimationGraph(str); // if block, set pushback, ! play tier 2
                         }
                     }
-                }
-                else if ((float)actor->pad0EC <= threshhold1 || (float)actor->pad0EC <= 5.00f) {
+                } else if (poise <= threshhold1) {
+					if (oriPoise <= threshhold1) {
+						return;
+					}
                     actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
                     if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {
                         actor->SetGraphVariableFloat(ptr->staggerMagn, 0.50f);
@@ -578,8 +683,10 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
                             isBlk ? NULL : actor->NotifyAnimationGraph(str);
                         }
                     }
-                }
-                else if ((float)actor->pad0EC <= threshhold2 || (float)actor->pad0EC <= 10.00f) {
+				} else if (poise <= threshhold2) {
+					if (oriPoise <= threshhold2) {
+						return;
+					}
                     actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
                     if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {
                         actor->SetGraphVariableFloat(ptr->staggerMagn, 0.25f);
@@ -612,7 +719,23 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 			return;
 		} else if (MAttacker) {
 			if (auto actor = a_target->As<RE::Actor>(); actor) {
+				if (!PoiseMod::IsTargetVaild(MAttacker, *a_target)) {
+					return;
+				}
 				auto ptr = Loki::PoiseMod::GetSingleton();
+
+				auto nowTime = uint32_t(std::time(nullptr) % UINT32_MAX);
+				auto lastStaggerTime = actor->pad1EC;
+				if (lastStaggerTime > nowTime) {
+					actor->pad1EC = nowTime;
+					lastStaggerTime = 0;
+				} else {
+					if (nowTime - lastStaggerTime < ptr->StaggerDelay) {
+						//logger::info("{} last stagger time {} is less than stagger delay {}", actor->GetName(), lastStaggerTime, ptr->StaggerDelay);
+						return;
+					}
+				}
+
 				float a_result = 0.00f;
 				float SpellMult = ptr->SpellPoiseEffectWeight;
 				if (MAttacker->IsPlayerRef()) {
@@ -641,6 +764,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 				if (!Effect) {
 					return;
 				}
+
 				float Magnitude = Effect->GetMagnitude();
 
 				auto EffectSetting = a_hitData->mainEffect->baseEffect->As<RE::EffectSetting>();
@@ -727,19 +851,55 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 				//	a_result = 0.00f;
 				//}
 
-				actor->pad0EC -= (int)a_result;
-				if (actor->pad0EC > 100000) {
-					actor->pad0EC = 0;
-				}
+				int poise = 0;
+				int oriPoise = 0;
+				float maxPoise = ptr->CalculateMaxPoise(actor);
 
 				if (ptr->StaggerEffectList.contains(EffectSetting)) {
 					actor->pad0EC = 0;
+				} else {
+					auto poiseRef = std::atomic_ref(actor->pad0EC);
+					oriPoise = poiseRef.load();
+					auto newPoise = 0;
+					auto newPoiseSet = 0;
+					do {
+						poise = poiseRef.load();
+						if (poise > oriPoise) {
+							return;
+						}
+						newPoise = poise - (int)a_result;
+						newPoiseSet = newPoise;
+						if (newPoiseSet <= 0) {
+							newPoiseSet = (int)maxPoise;
+						}
+					} while (!poiseRef.compare_exchange_strong(poise, newPoiseSet));
+					oriPoise = poise;
+					poise = newPoise;
+					if (poise > 100000) {
+						//logger::info("PoiseCalculateExplosion strange poise value {}", poise);
+						actor->pad0EC = 0;
+					}
 				}
 
-				float maxPoise = ptr->CalculateMaxPoise(actor);
+				if (poise <= 0) {
+					if (!std::atomic_ref(actor->pad1EC).compare_exchange_strong(lastStaggerTime, nowTime)) {
+						//logger::info("PoiseCalculateExplosion prevent stagger lock", poise);
+						return;
+					}
+				}
+
 				auto threshhold0 = maxPoise * ptr->poiseBreakThreshhold0;
+				if (threshhold0 <= 2) {
+					threshhold0 = 2;
+				}
 				auto threshhold1 = maxPoise * ptr->poiseBreakThreshhold1;
+				if (threshhold1 <= 5) {
+					threshhold1 = 5;
+				}
 				auto threshhold2 = maxPoise * ptr->poiseBreakThreshhold2;
+				if (threshhold2 <= 10) {
+					threshhold2 = 10;
+				}
 
 				auto hitPos = MAttacker->GetPosition();
 				auto heading = actor->GetHeadingAngle(hitPos, false);
@@ -760,14 +920,14 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 				auto cam = RE::PlayerCamera::GetSingleton();
 
 				if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
-					if ((float)actor->pad0EC <= 0.00f) {
+					if (poise <= 0) {
 						if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
 							if (cam->IsInFirstPerson()) {
 								cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
 							}
 						}
 						actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
-						actor->pad0EC = static_cast<std::uint32_t>(maxPoise);  // remember earlier when we calculated max poise health?	
+						//actor->pad0EC = static_cast<std::uint32_t>(maxPoise);  // remember earlier when we calculated max poise health?	
 						if (TrueHUDControl::GetSingleton()->g_trueHUD) {
 							TrueHUDControl::GetSingleton()->g_trueHUD->FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
 						}
@@ -797,14 +957,14 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 				}
 
 
-				if ((float)actor->pad0EC <= 0.00f) {
+				if (poise <= 0) {
 					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
 						if (cam->IsInFirstPerson()) {
 							cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
 						}
 					}
 					actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
-					actor->pad0EC = static_cast<std::uint32_t>(maxPoise);	  // remember earlier when we calculated max poise health?
+					//actor->pad0EC = static_cast<std::uint32_t>(maxPoise);	  // remember earlier when we calculated max poise health?
 					if (TrueHUDControl::GetSingleton()->g_trueHUD) {
 						TrueHUDControl::GetSingleton()->g_trueHUD->FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
 					}
@@ -828,7 +988,10 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 							actor->NotifyAnimationGraph(str);  // if not those, play tier 2
 						}
 					}
-				} else if ((float)actor->pad0EC <= threshhold0 || (float)actor->pad0EC <= 2.00f) {
+				} else if (poise <= threshhold0) {
+					if (oriPoise <= threshhold0) {
+						return;
+					}
 					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
 						if (cam->IsInFirstPerson()) {
 							cam->ForceThirdPerson();
@@ -855,7 +1018,10 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 							isBlk ? NULL : actor->NotifyAnimationGraph(str);  // if block, set pushback, ! play tier 2
 						}
 					}
-				} else if ((float)actor->pad0EC <= threshhold1 || (float)actor->pad0EC <= 5.00f) {
+				} else if (poise <= threshhold1) {
+					if (oriPoise <= threshhold1) {
+						return;
+					}
 					actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
 					if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {
 						actor->SetGraphVariableFloat(ptr->staggerMagn, 0.50f);
@@ -877,7 +1043,10 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 							isBlk ? NULL : actor->NotifyAnimationGraph(str);
 						}
 					}
-				} else if ((float)actor->pad0EC <= threshhold2 || (float)actor->pad0EC <= 10.00f) {
+				} else if (poise <= threshhold2) {
+					if (oriPoise <= threshhold2) {
+						return;
+					}
 					actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
 					if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {
 						actor->SetGraphVariableFloat(ptr->staggerMagn, 0.25f);
@@ -1361,8 +1530,11 @@ float Loki::PoiseMod::GetSubmergedLevel(RE::Actor* a_actor, float a_zPos, RE::TE
 
     if (!a_actor->HasMagicEffect(ptr->poiseDelayEffect)) {
         auto a_result = (int)CalculateMaxPoise(a_actor);
+		if (a_result > 100000) {
+			//logger::info("GetSubmergedLevel strange poise value {}", a_result);
+			a_result = 0;
+		}
         a_actor->pad0EC = a_result;
-        if (a_actor->pad0EC > 100000) { a_actor->pad0EC = 0; }
     }
 
     return _GetSubmergedLevel(a_actor, a_zPos, a_cell);
@@ -1371,6 +1543,19 @@ float Loki::PoiseMod::GetSubmergedLevel(RE::Actor* a_actor, float a_zPos, RE::TE
 
 void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData) {
     auto ptr = Loki::PoiseMod::GetSingleton();
+
+	auto nowTime = uint32_t(std::time(nullptr) % UINT32_MAX);
+	auto lastStaggerTime = a_actor->pad1EC;
+	if (lastStaggerTime > nowTime) {
+		a_actor->pad1EC = nowTime;
+		lastStaggerTime = 0;
+	} else {
+		if (nowTime - lastStaggerTime < ptr->StaggerDelay) {
+			//logger::info("{} last stagger time {} is less than stagger delay {}", a_actor->GetName(), lastStaggerTime, ptr->StaggerDelay);
+			return _ProcessHitEvent(a_actor, a_hitData);
+		}
+	}
+
     using HitFlag = RE::HitData::Flag;
     RE::FormID kLurker = 0x14495;
 
@@ -1381,14 +1566,52 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
     if (a_actor->IsPlayerRef() && !ptr->PlayerPoiseEnabled) { return _ProcessHitEvent(a_actor, a_hitData); }
     if (!a_actor->IsPlayerRef() && !ptr->NPCPoiseEnabled) { return _ProcessHitEvent(a_actor, a_hitData); }
 
+	if (!IsTargetVaild(a_hitData.aggressor.get().get(), *a_actor)) {
+		return _ProcessHitEvent(a_actor, a_hitData);
+	}
+
     float dmg = CalculatePoiseDamage(a_hitData, a_actor);
 
     if (dmg < 0.00f) {
-        logger::info("Damage was negative... somehow?");
+        //logger::info("Damage was negative... somehow?");
         dmg = 0.00f;
     }
-    a_actor->pad0EC -= (int)dmg;  // there was some bullshit with integer underflow
-    if (a_actor->pad0EC > 100000) a_actor->pad0EC = 0;  // this fixed it...
+
+	int poise = 0;
+	int oriPoise = 0;
+	float maxPoise = CalculateMaxPoise(a_actor);
+
+	{
+		auto poiseRef = std::atomic_ref(a_actor->pad0EC);
+		oriPoise = poiseRef.load();
+		auto newPoise = 0;
+		auto newPoiseSet = 0;
+		do {
+			poise = poiseRef.load();
+			if (poise > oriPoise) {
+				return _ProcessHitEvent(a_actor, a_hitData);
+			}
+			newPoise = poise - (int)dmg;
+			newPoiseSet = newPoise;
+			if (newPoiseSet <= 0) {
+				newPoiseSet = (int)maxPoise;
+			}
+		} while (!poiseRef.compare_exchange_strong(poise, newPoiseSet));
+		oriPoise = poise;
+		poise = newPoise;
+		if (poise > 100000) {
+			//logger::info("ProcessHitEvent strange poise value {}", poise);
+			a_actor->pad0EC = 0;
+		}
+	}
+
+	if (poise <= 0) {
+		if (!std::atomic_ref(a_actor->pad1EC).compare_exchange_strong(lastStaggerTime, nowTime)) {
+			//logger::info("ProcessHitEvent prevent stagger lock", poise);
+			return _ProcessHitEvent(a_actor, a_hitData);
+		}
+	}
+
     if (ptr->ConsoleInfoDump) {
         RE::ConsoleLog::GetSingleton()->Print("---");
         RE::ConsoleLog::GetSingleton()->Print("Aggressor's Weight: %f", a_hitData.aggressor.get()->GetWeight());
@@ -1399,7 +1622,7 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
         RE::ConsoleLog::GetSingleton()->Print("-");
         RE::ConsoleLog::GetSingleton()->Print("Victim's Weight: %f", a_actor->GetWeight());
 		RE::ConsoleLog::GetSingleton()->Print("Victim's EquipWeight: %f", ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_actor));
-        RE::ConsoleLog::GetSingleton()->Print("Victim's Current Poise Health: %d", a_actor->pad0EC);
+		RE::ConsoleLog::GetSingleton()->Print("Victim's Current Poise Health: %d %d", poise, a_actor->pad0EC);
         RE::ConsoleLog::GetSingleton()->Print("Victim's Max Poise Health %f", CalculateMaxPoise(a_actor));
         RE::ConsoleLog::GetSingleton()->Print("---");
     }
@@ -1413,10 +1636,19 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
 	if (a) {
 		a->CastSpellImmediate(ptr->poiseDelaySpell, false, a_actor, 1.0f, false, 0.0f, 0);
 	}
-    float maxPoise = CalculateMaxPoise(a_actor);
-    auto threshhold0 = maxPoise * ptr->poiseBreakThreshhold0;
-    auto threshhold1 = maxPoise * ptr->poiseBreakThreshhold1;
-    auto threshhold2 = maxPoise * ptr->poiseBreakThreshhold2;
+    
+	auto threshhold0 = maxPoise * ptr->poiseBreakThreshhold0;
+	if (threshhold0 <= 2) {
+		threshhold0 = 2;
+	}
+	auto threshhold1 = maxPoise * ptr->poiseBreakThreshhold1;
+	if (threshhold1 <= 5) {
+		threshhold1 = 5;
+	}
+	auto threshhold2 = maxPoise * ptr->poiseBreakThreshhold2;
+	if (threshhold2 <= 10) {
+		threshhold2 = 10;
+	}
 
 	//Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
 	bool isBlk = false;
@@ -1425,14 +1657,14 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
 
 	auto cam = RE::PlayerCamera::GetSingleton();
 
-    if ((float)a_actor->pad0EC <= 0.00f && a_actor->Is3DLoaded()) {
+    if (poise <= 0.00f && a_actor->Is3DLoaded()) {
 		if (ptr->ForceThirdPerson && a_actor->IsPlayerRef()) {
 			if (cam->IsInFirstPerson()) {
 		         cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
             }
         }
         a_actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
-        a_actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
+        //a_actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
         if (TrueHUDControl::GetSingleton()->g_trueHUD) {
             TrueHUDControl::GetSingleton()->g_trueHUD->
                 FlashActorSpecialBar(SKSE::GetPluginHandle(), a_actor->GetHandle(), false);
@@ -1464,7 +1696,10 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
             }
         }
     } 
-    else if (a_actor->Is3DLoaded() && (float)a_actor->pad0EC < threshhold0 || (float)a_actor->pad0EC < 2.00f ) {
+    else if (a_actor->Is3DLoaded() && poise < threshhold0) {
+		if (oriPoise <= threshhold0) {
+			return _ProcessHitEvent(a_actor, a_hitData);
+		}
 		if (a_actor->IsPlayerRef()) {
 			if (cam->IsInFirstPerson()) {
 				cam->ForceThirdPerson();
@@ -1498,7 +1733,10 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
             }
         }
     } 
-    else if (a_actor->Is3DLoaded() && (float)a_actor->pad0EC < threshhold1 || (float)a_actor->pad0EC < 5.00f) {
+    else if (a_actor->Is3DLoaded() && poise < threshhold1) {
+		if (oriPoise <= threshhold1) {
+			return _ProcessHitEvent(a_actor, a_hitData);
+		}
         a_actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
         if (a_actor->HasKeyword(ptr->kCreature) || a_actor->HasKeyword(ptr->kDwarven)) {
             a_actor->SetGraphVariableFloat(ptr->staggerMagn, 0.50f);
@@ -1527,7 +1765,10 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
             }
         }
     } 
-    else if (a_actor->Is3DLoaded() && (float)a_actor->pad0EC < threshhold2 || (float)a_actor->pad0EC < 8.00f) {
+    else if (a_actor->Is3DLoaded() && poise < threshhold2) {
+		if (oriPoise <= threshhold2) {
+			return _ProcessHitEvent(a_actor, a_hitData);
+		}
         a_actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
         if (a_actor->HasKeyword(ptr->kCreature) || a_actor->HasKeyword(ptr->kDwarven)) {
             a_actor->SetGraphVariableFloat(ptr->staggerMagn, 0.25f);

@@ -3,6 +3,7 @@
 #include "POISE/TrueHUDAPI.h"
 #include "POISE/TrueHUDControl.h"
 #include "ActorCache.h"
+#include <atomic>
 
 
 #ifdef SKYRIM_AE
@@ -111,10 +112,11 @@ namespace PoiseMod {  // Papyrus Functions
         if (!a_actor) {
             return;
         } else {
-            int poise = (int)a_actor->pad0EC;
-            poise -= (int)a_amount;
-            a_actor->pad0EC = poise;
-            if (a_actor->pad0EC > 100000) { a_actor->pad0EC = 0; }
+			auto poise = std::atomic_ref(a_actor->pad0EC).fetch_sub((int)a_amount);
+			if (poise > 100000) { 
+				logger::info("DamagePoise strange poise value {}", poise);
+				a_actor->pad0EC = 0;
+			}
 			if (Loki::TrueHUDControl::GetSingleton()->g_trueHUD) {
 				Loki::TrueHUDControl::GetSingleton()->GetCurrentSpecial(a_actor);
 			}
@@ -127,10 +129,11 @@ namespace PoiseMod {  // Papyrus Functions
         if (!a_actor) {
             return;
         } else {
-            int poise = (int)a_actor->pad0EC;
-            poise += (int)a_amount;
-            a_actor->pad0EC = poise;
-            if (a_actor->pad0EC > 100000) { a_actor->pad0EC = 0; }
+			auto poise = std::atomic_ref(a_actor->pad0EC).fetch_add((int)a_amount);
+			if (poise > 100000) {
+				logger::info("RestorePoise strange poise value {}", poise);
+				a_actor->pad0EC = 0;
+			}
 			if (Loki::TrueHUDControl::GetSingleton()->g_trueHUD) {
 				Loki::TrueHUDControl::GetSingleton()->GetCurrentSpecial(a_actor);
 			}
@@ -234,8 +237,11 @@ namespace PoiseMod {  // Papyrus Functions
         if (!a_actor) {
             return;
         } else {
+			if (a_amount > 100000) {
+				logger::info("SetPoise strange poise value {}", a_amount);
+				a_amount = 0;
+			}
             a_actor->pad0EC = (int)a_amount;
-            if (a_actor->pad0EC > 100000) { a_actor->pad0EC = 0; }
         }
 
     }
