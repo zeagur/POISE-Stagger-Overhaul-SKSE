@@ -199,9 +199,11 @@ Loki::PoiseMod::PoiseMod() {
     if (auto dataHandle = RE::TESDataHandler::GetSingleton(); dataHandle) {
         poiseDelaySpell  = dataHandle->LookupForm<RE::SpellItem>(0xD62, "loki_POISE.esp");
         poiseDelayEffect = dataHandle->LookupForm<RE::EffectSetting>(0xD63, "loki_POISE.esp");
-		//HardcodeFus1     = dataHandle->LookupForm<RE::EffectSetting>(0x7F82E, "Skyrim.esm");
-		//HardcodeFus2     = dataHandle->LookupForm<RE::EffectSetting>(0x13E08, "Skyrim.esm");
-        //Conner: this fus hardcode is only for 1 update. The next update should provide ini list of magic effects to instantly stagger.
+		HardcodeFus1     = dataHandle->LookupForm<RE::EffectSetting>(0x7F82E, "Skyrim.esm");
+		HardcodeFus2     = dataHandle->LookupForm<RE::EffectSetting>(0x13E08, "Skyrim.esm");
+		HardcodeDisarm1  = dataHandle->LookupForm<RE::EffectSetting>(0x8BB26, "Skyrim.esm");
+		HardcodeDisarm2  = dataHandle->LookupForm<RE::EffectSetting>(0x0CD08, "Skyrim.esm");
+        //Conner: only the 3rd word of shouts get handled correctly by stagger processing, so we have to hardcode the first few words of the stagger shouts.
        
         //PoiseDmgNerf     = dataHandle->LookupForm<RE::BGSKeyword>(0x433C, "loki_POISE.esp");
         //PoiseDmgBuff     = dataHandle->LookupForm<RE::BGSKeyword>(0x433B, "loki_POISE.esp");
@@ -291,12 +293,12 @@ bool Loki::PoiseMod::IsTargetVaild(RE::Actor* a_this, RE::TESObjectREFR& a_targe
 			bool isTargetPlayer = target->IsPlayerRef();
 			bool isTargetTeammate = target->IsPlayerTeammate();
 			bool isTargetSummonedByPC = target->IsSummoned() && targetOwner && targetOwner->IsPlayerRef();
-			bool isTargetAGuard = target->IsGuard();
+			//bool isTargetAGuard = target->IsGuard();
 			bool isTargetAMount = target->IsAMount();
 
 			// Prevent player's team from hitting each other, a guard or a mount.
 			if ((isThisPlayer || isThisTeammate || isThisSummonedByPC) &&
-				(isTargetPlayer || isTargetTeammate || isTargetSummonedByPC || isTargetAGuard || isTargetAMount))
+				(isTargetPlayer || isTargetTeammate || isTargetSummonedByPC || isTargetAMount))
 				isValid = false;
 
 			// If the target is commanded by the hostile actor, do not protect it
@@ -318,7 +320,7 @@ bool Loki::PoiseMod::IsTargetVaild(RE::Actor* a_this, RE::TESObjectREFR& a_targe
 void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster, RE::Projectile* a_projectile, RE::TESObjectREFR* a_target)
 {
 	if (!a_magicCaster || !a_projectile) {
-		//logger::info("Spell Poise: either no caster or no projectile.");
+		//RE::ConsoleLog::GetSingleton()->Print("no caster or no projectile.");
 		return;
     }
 
@@ -344,14 +346,68 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 				if (lastStaggerTime > nowTime) {
 					actor->pad1EC = nowTime;
 					lastStaggerTime = 0;
-				} else {
+				} 
+				else {
 					if (nowTime - lastStaggerTime < ptr->StaggerDelay) {
 						//logger::info("{} last stagger time {} is less than stagger delay {}", actor->GetName(), lastStaggerTime, ptr->StaggerDelay);
 						return;
 					}
 				}
 
-				//logger::info("Valid attacker and aggressor, projectile calculation being attempted!");
+				auto EffectSetting = a_projectile->avEffect->As<RE::EffectSetting>();
+
+				if (!EffectSetting) {
+					//logger::info("Could not find MagicEffect from projectile");
+					return;
+				}
+
+				static RE::BSFixedString str = NULL;
+				auto cam = RE::PlayerCamera::GetSingleton();
+
+				// if stagger effect is whitelisted skip other nullchecks and instantly stagger.
+				if (ptr->StaggerEffectList.contains(EffectSetting) || EffectSetting == ptr->HardcodeFus1 || EffectSetting == ptr->HardcodeFus2 || EffectSetting == ptr->HardcodeDisarm1 || EffectSetting == ptr->HardcodeDisarm2) {
+					actor->pad0EC = 0;
+					auto hitPos = MAttacker->GetPosition();
+					auto heading = actor->GetHeadingAngle(hitPos, false);
+					auto stagDir = (heading >= 0.0f) ? heading / 360.0f : (360.0f + heading) / 360.0f;
+					if (actor->GetHandle() == MAttacker->GetHandle()) {
+						stagDir = 0.0f;
+					}  // 0 when self-hit
+
+					auto caster = actor->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant);
+					//nullcheck
+					if (caster) {
+						caster->CastSpellImmediate(ptr->poiseDelaySpell, false, actor, 1.0f, false, 0.0f, 0);
+					}
+
+					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
+						if (cam->IsInFirstPerson()) {
+							cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
+						}
+					}
+					actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
+					//actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
+					if (TrueHUDControl::GetSingleton()->g_trueHUD) {
+						TrueHUDControl::GetSingleton()->g_trueHUD->FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
+					}
+					if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {  // if creature, use normal beh
+						actor->SetGraphVariableFloat(ptr->staggerMagn, 1.00f);
+						actor->NotifyAnimationGraph(ptr->ae_Stagger);  // play animation
+					} 
+					else {
+						if (stagDir > 0.25f && stagDir < 0.75f) {
+							str = ptr->poiseMedFwd;
+						} 
+						else {
+							str = ptr->poiseMedBwd;
+						}
+						actor->NotifyAnimationGraph(str); //instant stagger
+					}
+					return;
+				}
+
+
+				//logger::info("if not whitelisted stagger, then valid attacker and aggressor, projectile calculation being attempted!");
                 float a_result = 0.00f;
 				float SpellMult = ptr->SpellPoiseEffectWeight;
                 if (MAttacker->IsPlayerRef()) {
@@ -386,17 +442,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 
 				float Magnitude = Effect->GetMagnitude();
 
-				auto EffectSetting = a_projectile->avEffect->As<RE::EffectSetting>();
-				if (!EffectSetting) {
-					//logger::info("Could not find MagicEffect from projectile");
-					return;
-				}
-
-
-				if (ptr->StaggerEffectList.contains(EffectSetting)) {
-					a_result = 8.00f;
-				}
-                else if (EffectSetting->IsHostile() && EffectSetting->IsDetrimental()) {
+                if (EffectSetting->IsHostile() && EffectSetting->IsDetrimental()) {
 					a_result = Magnitude * SpellMult;
                     if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
 						float SpellConcMult = ptr->SpellPoiseConcMult;
@@ -542,9 +588,6 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 				}
 
                 //Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
-                bool isBlk = false;
-                static RE::BSFixedString str = NULL;
-				auto cam = RE::PlayerCamera::GetSingleton();
 
                 if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
 					//RE::ConsoleLog::GetSingleton()->Print("magic event is from concentration spell");
@@ -600,8 +643,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
                     if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) { // if creature, use normal beh
                         actor->SetGraphVariableFloat(ptr->staggerMagn, 1.00f);
                         actor->NotifyAnimationGraph(ptr->ae_Stagger);          // play animation
-                    } 
-                    else {
+                    } else {
 						if (actor->HasKeyword(ptr->kDragon)) {
                             if (stagDir > 0.25f && stagDir < 0.75f) {
                                 str = ptr->poiseLargestFwd;
@@ -633,8 +675,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
                     if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) { // if creature, use normal beh
                         actor->SetGraphVariableFloat(ptr->staggerMagn, 0.75f);
                         actor->NotifyAnimationGraph(ptr->ae_Stagger);
-                    } 
-                    else {
+                    } else {
 						if (actor->HasKeyword(ptr->kDragon)) {	// check if explosion, dragon, giant attack or dwarven
                             if (stagDir > 0.25f && stagDir < 0.75f) {
                                 str = ptr->poiseLargeFwd;
@@ -651,7 +692,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
                             else {
                                 str = ptr->poiseMedBwd;
                             }
-                            isBlk ? NULL : actor->NotifyAnimationGraph(str); // if block, set pushback, ! play tier 2
+                            actor->NotifyAnimationGraph(str); // if block, set pushback, ! play tier 2
                         }
                     }
                 } else if (poise <= threshhold1) {
@@ -662,8 +703,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
                     if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {
                         actor->SetGraphVariableFloat(ptr->staggerMagn, 0.50f);
                         actor->NotifyAnimationGraph(ptr->ae_Stagger);
-                    } 
-                    else {
+                    } else {
                         if (actor->HasKeyword(ptr->kDragon)) {
                             if (stagDir > 0.25f && stagDir < 0.75f) {
                                 str = ptr->poiseLargeFwd;
@@ -680,7 +720,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
                             else {
                                 str = ptr->poiseSmallBwd;
                             }
-                            isBlk ? NULL : actor->NotifyAnimationGraph(str);
+                            actor->NotifyAnimationGraph(str);
                         }
                     }
 				} else if (poise <= threshhold2) {
@@ -699,7 +739,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
                         else {
                             str = ptr->poiseSmallBwd;
                         }
-                        isBlk ? NULL : actor->NotifyAnimationGraph(str);
+                        actor->NotifyAnimationGraph(str);
                     }
                 }
             }
@@ -915,7 +955,6 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 				}
 
 				//Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
-				bool isBlk = false;
 				static RE::BSFixedString str = NULL;
 				auto cam = RE::PlayerCamera::GetSingleton();
 
@@ -1015,7 +1054,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 							} else {
 								str = ptr->poiseMedBwd;
 							}
-							isBlk ? NULL : actor->NotifyAnimationGraph(str);  // if block, set pushback, ! play tier 2
+							actor->NotifyAnimationGraph(str); 
 						}
 					}
 				} else if (poise <= threshhold1) {
@@ -1040,7 +1079,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 							} else {
 								str = ptr->poiseSmallBwd;
 							}
-							isBlk ? NULL : actor->NotifyAnimationGraph(str);
+							actor->NotifyAnimationGraph(str);
 						}
 					}
 				} else if (poise <= threshhold2) {
@@ -1057,7 +1096,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 						} else {
 							str = ptr->poiseSmallBwd;
 						}
-						isBlk ? NULL : actor->NotifyAnimationGraph(str);
+						actor->NotifyAnimationGraph(str);
 					}
 				}
 			}

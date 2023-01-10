@@ -51,9 +51,11 @@ namespace Loki {
         RE::BGSKeyword* kTroll = NULL;
         RE::BGSKeyword* WeapMaterialSilver = NULL;
 
-        //RE::EffectSetting* HardcodeFus1 = NULL;
-		//RE::EffectSetting* HardcodeFus2 = NULL;
-        //hardcode fus only temporarily, next update switch to ini table of MagicEffects to stagger.
+        RE::EffectSetting* HardcodeFus1 = NULL;
+		RE::EffectSetting* HardcodeFus2 = NULL;
+		RE::EffectSetting* HardcodeDisarm1 = NULL;
+		RE::EffectSetting* HardcodeDisarm2 = NULL;
+        //hardcode fus and disarm because the first two words of a shout will not get processed by whitelist for whatever reason
  
  
         //RE::BGSKeyword* PoiseDmgNerf = NULL;
