@@ -1,2 +1,6 @@
 build/
 buildae/
+
+# IDE
+.idea
+.vscode

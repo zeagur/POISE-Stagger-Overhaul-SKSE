@@ -1,8 +1,7 @@
 {
-  "name": "loki-poise",
+  "name": "Loki-ConnerRia-poisebreaker",
   "version-string": "1.0.0",
-  "description": "An example project built using CommonLibSSE",
-  "homepage": "https://github.com/Ryan-rsm-McKenzie/ExamplePlugin-CommonLibSSE",
+  "description": "Loki-forked ConnerRia's Poisebreaker",
   "license": "MIT",
   "dependencies": [
     "boost-stl-interfaces",
@@ -11,12 +10,5 @@
     "spdlog",
     "tomlplusplus",
     "xbyak"
-  ],
-  "builtin-baseline": "bd1ef2df46303989eeb048eb7aa9b816aa46365e",
-  "overrides": [
-    {
-      "name": "fmt",
-      "version": "8.0.1"
-    }
   ]
 }
