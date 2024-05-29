@@ -54,5 +54,3 @@ namespace stl
 #else
 #	define OFFSET(se, ae) se
 #endif
-
-#include "Version.h"

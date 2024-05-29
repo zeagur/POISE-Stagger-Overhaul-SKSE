@@ -42,7 +42,7 @@ void Loki::PoiseMod::ReadPoiseTOML() {
             ss << "Error parsing file \'" << *e.source().path << "\':\n"
                 << '\t' << e.description() << '\n'
                 << "\t\t(" << e.source().begin << ')';
-            logger::error(ss.str());
+            logger::error("{}", ss.str());
         } catch (const std::exception& e) {
             logger::error("{}", e.what());
         } catch (...) {
@@ -100,7 +100,7 @@ void Loki::PoiseMod::ReadStaggerList() {
 
 	if (std::filesystem::is_directory(whitelistpath))
 	{
-		for (const auto& file : std::filesystem::directory_iterator(whitelistpath)) 
+		for (const auto& file : std::filesystem::directory_iterator(whitelistpath))
 		{
 			if (std::filesystem::is_regular_file(file) && file.path().extension() == ext) {
 				auto path = file.path();
@@ -204,7 +204,7 @@ Loki::PoiseMod::PoiseMod() {
 		HardcodeDisarm1  = dataHandle->LookupForm<RE::EffectSetting>(0x8BB26, "Skyrim.esm");
 		HardcodeDisarm2  = dataHandle->LookupForm<RE::EffectSetting>(0x0CD08, "Skyrim.esm");
         //Conner: only the 3rd word of shouts get handled correctly by stagger processing, so we have to hardcode the first few words of the stagger shouts.
-       
+
         //PoiseDmgNerf     = dataHandle->LookupForm<RE::BGSKeyword>(0x433C, "loki_POISE.esp");
         //PoiseDmgBuff     = dataHandle->LookupForm<RE::BGSKeyword>(0x433B, "loki_POISE.esp");
         //PoiseHPNerf      = dataHandle->LookupForm<RE::BGSKeyword>(0x433A, "loki_POISE.esp");
@@ -222,12 +222,12 @@ Loki::PoiseMod::PoiseMod() {
 }
 
 Loki::PoiseMod* Loki::PoiseMod::GetSingleton() {
-    static Loki::PoiseMod* singleton = new Loki::PoiseMod();
-    return singleton;
+	static std::unique_ptr<PoiseMod> singleton(new PoiseMod());
+	return singleton.get();
 }
 
 void Loki::PoiseMod::InstallStaggerHook() {
-	REL::Relocation<std::uintptr_t> StaggerHook{ RELOCATION_ID(37673, 38627), OFFSET(0x3C0, 0x4A8) };
+	REL::Relocation StaggerHook{ RELOCATION_ID(37673, 38627), OFFSET(0x3C0, 0x4A8) };
 
 	auto& trampoline = SKSE::GetTrampoline();
 	_ProcessHitEvent = trampoline.write_call<5>(StaggerHook.address(), ProcessHitEvent);
@@ -236,7 +236,7 @@ void Loki::PoiseMod::InstallStaggerHook() {
 }
 
 void Loki::PoiseMod::InstallWaterHook() {
-	REL::Relocation<std::uintptr_t> ActorUpdate{ RELOCATION_ID(36357, 37348), OFFSET(0x6D3, 0x674) };
+	REL::Relocation ActorUpdate{ RELOCATION_ID(36357, 37348), OFFSET(0x6D3, 0x674) };
 	// last ditch effort
 	auto& trampoline = SKSE::GetTrampoline();
 	_GetSubmergedLevel = trampoline.write_call<5>(ActorUpdate.address(), GetSubmergedLevel);
@@ -245,7 +245,7 @@ void Loki::PoiseMod::InstallWaterHook() {
 }
 
 void Loki::PoiseMod::InstallIsActorKnockdownHook() {
-	REL::Relocation<std::uintptr_t> isActorKnockdown{ RELOCATION_ID(38858, 39895), OFFSET(0x7E, 0x68) };
+	REL::Relocation isActorKnockdown{ RELOCATION_ID(38858, 39895), OFFSET(0x7E, 0x68) };
 
 	auto& trampoline = SKSE::GetTrampoline();
 	_IsActorKnockdown = trampoline.write_call<5>(isActorKnockdown.address(), IsActorKnockdown);
@@ -280,7 +280,7 @@ bool Loki::PoiseMod::IsTargetVaild(RE::Actor* a_this, RE::TESObjectREFR& a_targe
 {
 	bool isValid = true;
 	if (a_target.Is(RE::FormType::ActorCharacter)) {
-		auto target = static_cast<RE::Actor*>(&a_target);
+		auto target = dynamic_cast<RE::Actor*>(&a_target);
 		if (!target->IsDead() && !target->IsHostileToActor(a_this)) {
 			auto targetOwnerHandle = target->GetCommandingActor();
 			auto thisOwnerHandle = a_this->GetCommandingActor();
@@ -327,425 +327,404 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 	if (!a_target) {
 		//logger::info("Spell Poise: no target found.");
 		return;
-    } 
-    else {	   
-        auto MAttacker = a_magicCaster->GetCasterAsActor();
-		if (MAttacker == NULL) {
-			return;
-        }           
-		else if (MAttacker) {
-			if (auto actor = a_target->As<RE::Actor>(); actor) {
-				if (!PoiseMod::IsTargetVaild(MAttacker, *a_target)) {
+	}
+	auto MAttacker = a_magicCaster->GetCasterAsActor();
+	if (MAttacker == nullptr) {
+		return;
+	}
+	if (auto actor = a_target->As<RE::Actor>(); actor) {
+			if (!PoiseMod::IsTargetVaild(MAttacker, *a_target)) {
+				return;
+			}
+
+			auto ptr = Loki::PoiseMod::GetSingleton();
+
+			auto nowTime = uint32_t(std::time(nullptr) % UINT32_MAX);
+			auto lastStaggerTime = actor->GetActorRuntimeData().pad1EC;
+			if (lastStaggerTime > nowTime) {
+				actor->GetActorRuntimeData().pad1EC = nowTime;
+				lastStaggerTime = 0;
+			} else {
+				if (nowTime - lastStaggerTime < ptr->StaggerDelay) {
+					//logger::info("{} last stagger time {} is less than stagger delay {}", actor->GetName(), lastStaggerTime, ptr->StaggerDelay);
 					return;
 				}
+			}
 
-                auto ptr = Loki::PoiseMod::GetSingleton();
+			auto EffectSetting = a_projectile->GetProjectileRuntimeData().avEffect->As<RE::EffectSetting>();
 
-				auto nowTime = uint32_t(std::time(nullptr) % UINT32_MAX);
-				auto lastStaggerTime = actor->pad1EC;
-				if (lastStaggerTime > nowTime) {
-					actor->pad1EC = nowTime;
-					lastStaggerTime = 0;
-				} 
-				else {
-					if (nowTime - lastStaggerTime < ptr->StaggerDelay) {
-						//logger::info("{} last stagger time {} is less than stagger delay {}", actor->GetName(), lastStaggerTime, ptr->StaggerDelay);
+			if (!EffectSetting) {
+				//logger::info("Could not find MagicEffect from projectile");
+				return;
+			}
+
+			static RE::BSFixedString str = nullptr;
+			auto cam = RE::PlayerCamera::GetSingleton();
+
+			// if stagger effect is whitelisted skip other nullchecks and instantly stagger.
+			if (ptr->StaggerEffectList.contains(EffectSetting) || EffectSetting == ptr->HardcodeFus1 || EffectSetting == ptr->HardcodeFus2 || EffectSetting == ptr->HardcodeDisarm1 || EffectSetting == ptr->HardcodeDisarm2) {
+				actor->GetActorRuntimeData().pad0EC = 0;
+				auto hitPos = MAttacker->GetPosition();
+				auto heading = actor->GetHeadingAngle(hitPos, false);
+				auto stagDir = (heading >= 0.0f) ? heading / 360.0f : (360.0f + heading) / 360.0f;
+				if (actor->GetHandle() == MAttacker->GetHandle()) {
+					stagDir = 0.0f;
+				}  // 0 when self-hit
+
+				auto caster = actor->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant);
+				//nullcheck
+				if (caster) {
+					caster->CastSpellImmediate(ptr->poiseDelaySpell, false, actor, 1.0f, false, 0.0f, 0);
+				}
+
+				if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
+					if (cam->IsInFirstPerson()) {
+						cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
+					}
+				}
+				actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
+				//actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
+				if (TrueHUDControl::GetSingleton()->g_trueHUD) {
+					TrueHUDControl::GetSingleton()->g_trueHUD->FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
+				}
+				if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {  // if creature, use normal beh
+					actor->SetGraphVariableFloat(ptr->staggerMagn, 1.00f);
+					actor->NotifyAnimationGraph(ptr->ae_Stagger);  // play animation
+				} else {
+					if (stagDir > 0.25f && stagDir < 0.75f) {
+						str = ptr->poiseMedFwd;
+					} else {
+						str = ptr->poiseMedBwd;
+					}
+					actor->NotifyAnimationGraph(str);  //instant stagger
+				}
+				return;
+			}
+
+
+			//logger::info("if not whitelisted stagger, then valid attacker and aggressor, projectile calculation being attempted!");
+			float a_result = 0.00f;
+			float SpellMult = ptr->SpellPoiseEffectWeight;
+			if (MAttacker->IsPlayerRef()) {
+				SpellMult = ptr->SpellPoiseEffectWeightP;
+			}
+
+			if (!ptr->SpellPoise && !MAttacker->IsPlayerRef()) {
+				return;
+			}
+
+			if (!ptr->PlayerSpellPoise && MAttacker->IsPlayerRef()) {
+				return;
+			}
+
+			auto avHealth = actor->GetActorBase()->GetActorValue(RE::ActorValue::kHealth);
+			auto avParalysis = actor->GetActorBase()->GetActorValue(RE::ActorValue::kParalysis);
+			if (avHealth <= 0.05f || actor->IsInKillMove() || avParalysis) {
+				//logger::info("target is in state ineligible for poise dmg");
+				return;
+			}
+
+			auto Spell = a_projectile->GetProjectileRuntimeData().spell->As<RE::MagicItem>();
+			if (!Spell) {
+				//logger::info("Could not find spell from projectile");
+				return;
+			}
+			auto Effect = Spell->GetCostliestEffectItem();
+			if (!Effect) {
+				//logger::info("Could not find applied effect from projectile");
+				return;
+			}
+
+			float Magnitude = Effect->GetMagnitude();
+
+			if (EffectSetting->IsHostile() && EffectSetting->IsDetrimental()) {
+				a_result = Magnitude * SpellMult;
+				if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
+					float SpellConcMult = ptr->SpellPoiseConcMult;
+					a_result *= SpellConcMult;
+				}
+				//RE::ConsoleLog::GetSingleton()->Print("Poise Damage From Cum-> %f", a_result);
+			} else {
+				//RE::ConsoleLog::GetSingleton()->Print("spell is not hostile nor in whitelist, no poise dmg");
+				return;
+			}
+
+			const auto zeffect = MAttacker->GetMagicTarget()->GetActiveEffectList();
+			if (zeffect) {
+				for (const auto& aeffect : *zeffect) {
+					if (!aeffect) {
+						continue;
+					}
+					if (!aeffect->GetBaseObject()) {
+						continue;
+					}
+					if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzSpellPoiseDamageBuffFlat")) {
+						auto buffFlat = (aeffect->magnitude);
+						a_result += buffFlat;  //aggressor has buff that gives them flat spell poise damage
+					}
+					if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzSpellPoiseDamageBuffMult")) {
+						auto buffPercent = (aeffect->magnitude / 100.00f);	// convert to percentage
+						auto resultingBuff = (a_result * buffPercent);
+						a_result += resultingBuff;	// aggressor has buff that multiplies their spell poise damage.
+					}
+					if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzSpellPoiseDamageNerfFlat")) {
+						auto NerfFlat = (aeffect->magnitude);
+						a_result -= NerfFlat;  //aggressor has nerf that reduces their spell poise damage by flat value
+					}
+					if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzSpellPoiseDamageNerfMult")) {
+						auto nerfPercent = (aeffect->magnitude / 100.00f);	// convert to percentage
+						auto resultingNerf = (a_result * nerfPercent);
+						a_result -= resultingNerf;	// aggressor has nerf that nerfs their spell poise damage by multiplier.
+					}
+				}
+			}
+
+			bool blk;
+			actor->GetGraphVariableBool("IsBlocking", blk);
+
+			//bool shout;
+			//actor->GetGraphVariableBool("IsShouting", shout);
+
+			if (a_result < 0.00f) {
+				logger::info("Magic damage was negative... somehow?");
+				a_result = 0.00f;
+			}
+
+			if (blk) {
+				if (actor->IsPlayerRef()) {
+					float BlockMult = (actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kBlock));
+					if (BlockMult >= 20.0f) {
+						float fLogarithm = ((BlockMult - 20) / 50 + 1);
+						double PlayerBlockMult = (0.7 - log10(fLogarithm));
+						PlayerBlockMult = (PlayerBlockMult >= 0.0) ? PlayerBlockMult : 0.0;
+						a_result *= (float)PlayerBlockMult;
+					} else {
+						a_result *= 0.7f;
+					}
+				} else {
+					a_result *= ptr->BlockedMult;
+				}
+			}
+
+			if (actor->HasKeyword(ptr->kGhost)) {
+				a_result = 0.00f;
+			}
+
+
+			//if (shout) {
+			//	a_result = 0.00f;
+			//}
+
+			uint32_t oriPoise = 0;
+			uint32_t poise = 0;
+			float maxPoise = ptr->CalculateMaxPoise(actor);
+
+			if (ptr->StaggerEffectList.contains(EffectSetting)) {
+				actor->GetActorRuntimeData().pad0EC = 0;
+			} else {
+				auto poiseRef = std::atomic_ref(actor->GetActorRuntimeData().pad0EC);
+				oriPoise = poiseRef.load();
+				int newPoise, newPoiseSet;
+				do {
+					poise = poiseRef.load();
+					if (poise > oriPoise) {
 						return;
 					}
+					newPoise = poise - static_cast<uint32_t>(a_result);
+					newPoiseSet = newPoise;
+					if (newPoiseSet <= 0) {
+						newPoiseSet = static_cast<uint32_t>(maxPoise);
+					}
+					oriPoise = poise;
+				} while (!poiseRef.compare_exchange_strong(poise, newPoiseSet));
+				oriPoise = poise;
+				poise = newPoise;
+
+				// after change pad0EC's typedef from std::uint32_t to std::int32_t, this case shouldn't happen anymore
+				if (poise > 100000) {
+					//logger::info("PoiseCalculateMagic strange poise value {}", poise);
+					actor->GetActorRuntimeData().pad0EC = 0;
 				}
+			}
 
-				auto EffectSetting = a_projectile->avEffect->As<RE::EffectSetting>();
-
-				if (!EffectSetting) {
-					//logger::info("Could not find MagicEffect from projectile");
+			if (poise <= 0) {
+				if (!std::atomic_ref(actor->GetActorRuntimeData().pad1EC).compare_exchange_strong(lastStaggerTime, nowTime)) {
+					//logger::info("PoiseCalculateMagic prevent stagger lock", poise);
 					return;
 				}
+			}
 
-				static RE::BSFixedString str = NULL;
-				auto cam = RE::PlayerCamera::GetSingleton();
+			auto threshhold0 = maxPoise * ptr->poiseBreakThreshhold0;
+			if (threshhold0 <= 2) {
+				threshhold0 = 2;
+			}
+			auto threshhold1 = maxPoise * ptr->poiseBreakThreshhold1;
+			if (threshhold1 <= 5) {
+				threshhold1 = 5;
+			}
+			auto threshhold2 = maxPoise * ptr->poiseBreakThreshhold2;
+			if (threshhold2 <= 10) {
+				threshhold2 = 10;
+			}
 
-				// if stagger effect is whitelisted skip other nullchecks and instantly stagger.
-				if (ptr->StaggerEffectList.contains(EffectSetting) || EffectSetting == ptr->HardcodeFus1 || EffectSetting == ptr->HardcodeFus2 || EffectSetting == ptr->HardcodeDisarm1 || EffectSetting == ptr->HardcodeDisarm2) {
-					actor->pad0EC = 0;
-					auto hitPos = MAttacker->GetPosition();
-					auto heading = actor->GetHeadingAngle(hitPos, false);
-					auto stagDir = (heading >= 0.0f) ? heading / 360.0f : (360.0f + heading) / 360.0f;
-					if (actor->GetHandle() == MAttacker->GetHandle()) {
-						stagDir = 0.0f;
-					}  // 0 when self-hit
+			auto hitPos = MAttacker->GetPosition();
+			auto heading = actor->GetHeadingAngle(hitPos, false);
+			auto stagDir = (heading >= 0.0f) ? heading / 360.0f : (360.0f + heading) / 360.0f;
+			if (actor->GetHandle() == MAttacker->GetHandle()) {
+				stagDir = 0.0f;
+			}  // 0 when self-hit
 
-					auto caster = actor->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant);
-					//nullcheck
-					if (caster) {
-						caster->CastSpellImmediate(ptr->poiseDelaySpell, false, actor, 1.0f, false, 0.0f, 0);
-					}
+			auto caster = actor->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant);
+			//nullcheck
+			if (caster) {
+				caster->CastSpellImmediate(ptr->poiseDelaySpell, false, actor, 1.0f, false, 0.0f, 0);
+			}
 
+			//Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
+
+			if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
+				//RE::ConsoleLog::GetSingleton()->Print("magic event is from concentration spell");
+				if (poise <= 0) {
 					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
 						if (cam->IsInFirstPerson()) {
 							cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
 						}
 					}
 					actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
-					//actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
+					//actor->pad0EC = static_cast<std::uint32_t>(maxPoise);	  // remember earlier when we calculated max poise health?
 					if (TrueHUDControl::GetSingleton()->g_trueHUD) {
 						TrueHUDControl::GetSingleton()->g_trueHUD->FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
 					}
 					if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {  // if creature, use normal beh
 						actor->SetGraphVariableFloat(ptr->staggerMagn, 1.00f);
 						actor->NotifyAnimationGraph(ptr->ae_Stagger);  // play animation
-					} 
-					else {
+					} else {
+						if (actor->HasKeyword(ptr->kDragon)) {
+							if (stagDir > 0.25f && stagDir < 0.75f) {
+								str = ptr->poiseLargestFwd;
+							} else {
+								str = ptr->poiseLargestBwd;
+							}
+							actor->NotifyAnimationGraph(str);  // if those, play tier 4
+						} else {
+							if (stagDir > 0.25f && stagDir < 0.75f) {
+								str = ptr->poiseMedFwd;
+							} else {
+								str = ptr->poiseMedBwd;
+							}
+							actor->NotifyAnimationGraph(str);  // if not those, play tier 2
+						}
+					}
+				} else {
+					return;	 // Concentration spells spam magic poise calculation. To prevent stupid staggerlocks, we only stagger once per Poise meter for concentration spells.
+				}
+			}
+
+
+			if (poise <= 0) {
+				if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
+					if (cam->IsInFirstPerson()) {
+						cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
+					}
+				}
+				actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
+				//actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
+				if (TrueHUDControl::GetSingleton()->g_trueHUD) {
+					TrueHUDControl::GetSingleton()->g_trueHUD->FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
+				}
+				if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {  // if creature, use normal beh
+					actor->SetGraphVariableFloat(ptr->staggerMagn, 1.00f);
+					actor->NotifyAnimationGraph(ptr->ae_Stagger);  // play animation
+				} else {
+					if (actor->HasKeyword(ptr->kDragon)) {
+						if (stagDir > 0.25f && stagDir < 0.75f) {
+							str = ptr->poiseLargestFwd;
+						} else {
+							str = ptr->poiseLargestBwd;
+						}
+						actor->NotifyAnimationGraph(str);  // if those, play tier 4
+					} else {
 						if (stagDir > 0.25f && stagDir < 0.75f) {
 							str = ptr->poiseMedFwd;
-						} 
-						else {
+						} else {
 							str = ptr->poiseMedBwd;
 						}
-						actor->NotifyAnimationGraph(str); //instant stagger
-					}
-					return;
-				}
-
-
-				//logger::info("if not whitelisted stagger, then valid attacker and aggressor, projectile calculation being attempted!");
-                float a_result = 0.00f;
-				float SpellMult = ptr->SpellPoiseEffectWeight;
-                if (MAttacker->IsPlayerRef()) {
-					SpellMult = ptr->SpellPoiseEffectWeightP;
-                }
-
-                if (!ptr->SpellPoise && !MAttacker->IsPlayerRef()) {
-					return;
-                }
-
-                if (!ptr->PlayerSpellPoise && MAttacker->IsPlayerRef()) {
-					return;
-                }
-
-				auto avHealth = actor->GetActorValue(RE::ActorValue::kHealth);
-				auto avParalysis = actor->GetActorValue(RE::ActorValue::kParalysis);
-				if (avHealth <= 0.05f || actor->IsInKillMove() || avParalysis) {
-					//logger::info("target is in state ineligible for poise dmg");
-					return;
-				}
-
-                auto Spell = a_projectile->spell->As<RE::MagicItem>();
-                if (!Spell) {
-					//logger::info("Could not find spell from projectile");
-					return;
-                }
-				auto Effect = Spell->GetCostliestEffectItem();
-                if (!Effect) {
-					//logger::info("Could not find applied effect from projectile");
-					return;
-                }
-
-				float Magnitude = Effect->GetMagnitude();
-
-                if (EffectSetting->IsHostile() && EffectSetting->IsDetrimental()) {
-					a_result = Magnitude * SpellMult;
-                    if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
-						float SpellConcMult = ptr->SpellPoiseConcMult;
-						a_result *= SpellConcMult;
-                    }
-					//RE::ConsoleLog::GetSingleton()->Print("Poise Damage From Cum-> %f", a_result);
-				}
-                else {
-					//RE::ConsoleLog::GetSingleton()->Print("spell is not hostile nor in whitelist, no poise dmg");
-					return;
-                }
-
-                const auto zeffect = MAttacker->GetActiveEffectList();
-				if (zeffect) {
-					for (const auto& aeffect : *zeffect) {
-						if (!aeffect) {
-							continue;
-						}
-						if (!aeffect->GetBaseObject()) {
-							continue;
-						}
-						if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzSpellPoiseDamageBuffFlat")) {
-							auto buffFlat = (aeffect->magnitude);
-							a_result += buffFlat;  //aggressor has buff that gives them flat spell poise damage 
-						}
-						if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzSpellPoiseDamageBuffMult")) {
-							auto buffPercent = (aeffect->magnitude / 100.00f);	// convert to percentage
-							auto resultingBuff = (a_result * buffPercent);
-							a_result += resultingBuff;	// aggressor has buff that multiplies their spell poise damage.
-						}
-						if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzSpellPoiseDamageNerfFlat")) {
-							auto NerfFlat = (aeffect->magnitude);
-							a_result -= NerfFlat;  //aggressor has nerf that reduces their spell poise damage by flat value
-						}
-						if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzSpellPoiseDamageNerfMult")) {
-							auto nerfPercent = (aeffect->magnitude / 100.00f);	// convert to percentage
-							auto resultingNerf = (a_result * nerfPercent);
-							a_result -= resultingNerf;	// aggressor has nerf that nerfs their spell poise damage by multiplier.
-						}
+						actor->NotifyAnimationGraph(str);  // if not those, play tier 2
 					}
 				}
-
-				bool blk;
-				actor->GetGraphVariableBool("IsBlocking", blk);
-
-				//bool shout;
-				//actor->GetGraphVariableBool("IsShouting", shout);
-
-				if (a_result < 0.00f) {
-					logger::info("Magic damage was negative... somehow?");
-					a_result = 0.00f;
+			} else if (poise <= threshhold0) {
+				if (oriPoise <= threshhold0) {
+					return;
 				}
-
-                if (blk) {
-					if (actor->IsPlayerRef()) {
-						float BlockMult = (actor->GetBaseActorValue(RE::ActorValue::kBlock));
-						if (BlockMult >= 20.0f) {
-							float fLogarithm = ((BlockMult - 20) / 50 + 1);
-							double PlayerBlockMult = (0.7 - log10(fLogarithm));
-							PlayerBlockMult = (PlayerBlockMult >= 0.0) ? PlayerBlockMult : 0.0;
-							a_result *= (float)PlayerBlockMult;
-						} 
-                        else {
-							a_result *= 0.7f;
-						}
-					} 
-                    else {
-						a_result *= ptr->BlockedMult;
+				if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
+					if (cam->IsInFirstPerson()) {
+						cam->ForceThirdPerson();
 					}
 				}
-
-				if (actor->HasKeyword(ptr->kGhost)) {
-					a_result = 0.00f;
-				}
-
-                
-				//if (shout) {
-				//	a_result = 0.00f;
-				//}
-
-				int oriPoise = 0;
-				int poise = 0;
-				float maxPoise = ptr->CalculateMaxPoise(actor);
-
-				if (ptr->StaggerEffectList.contains(EffectSetting)) {
-					actor->pad0EC = 0;
+				actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);					  // set direction
+				if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {  // if creature, use normal beh
+					actor->SetGraphVariableFloat(ptr->staggerMagn, 0.75f);
+					actor->NotifyAnimationGraph(ptr->ae_Stagger);
 				} else {
-					auto poiseRef = std::atomic_ref(actor->pad0EC);
-					oriPoise = poiseRef.load();
-					auto newPoise = 0;
-					auto newPoiseSet = 0; 
-					do {
-						poise = poiseRef.load();
-						if (poise > oriPoise){
-							return;
-						}
-						newPoise = poise - (int)a_result;
-						newPoiseSet = newPoise;
-						if (newPoiseSet <= 0) {
-							newPoiseSet = (int)maxPoise;
-						}
-						oriPoise = poise;
-					} while (!poiseRef.compare_exchange_strong(poise, newPoiseSet));
-					oriPoise = poise;
-					poise = newPoise;
-
-					// after change pad0EC's typedef from std::uint32_t to std::int32_t, this case shouldn't happen anymore
-					if (poise > 100000) {
-						//logger::info("PoiseCalculateMagic strange poise value {}", poise);
-						actor->pad0EC = 0;
-					}
-				}
-
-				if (poise <= 0) {
-					if (!std::atomic_ref(actor->pad1EC).compare_exchange_strong(lastStaggerTime, nowTime)) {
-						//logger::info("PoiseCalculateMagic prevent stagger lock", poise);
-						return;
-					}
-				}
-
-                auto threshhold0 = maxPoise * ptr->poiseBreakThreshhold0;
-				if (threshhold0 <= 2) {
-					threshhold0 = 2;
-				}
-                auto threshhold1 = maxPoise * ptr->poiseBreakThreshhold1;
-				if (threshhold1 <= 5) {
-					threshhold1 = 5;
-				}
-                auto threshhold2 = maxPoise * ptr->poiseBreakThreshhold2;
-				if (threshhold2 <= 10) {
-					threshhold2 = 10;
-				}
-
-				auto hitPos = MAttacker->GetPosition();
-				auto heading = actor->GetHeadingAngle(hitPos, false);
-                auto stagDir = (heading >= 0.0f) ? heading / 360.0f : (360.0f + heading) / 360.0f;
-                if (actor->GetHandle() == MAttacker->GetHandle()) { stagDir = 0.0f; } // 0 when self-hit
-
-                auto caster = actor->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant);
-                //nullcheck
-				if (caster) {
-					caster->CastSpellImmediate(ptr->poiseDelaySpell, false, actor, 1.0f, false, 0.0f, 0);
-				}
-
-                //Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
-
-                if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
-					//RE::ConsoleLog::GetSingleton()->Print("magic event is from concentration spell");
-					if (poise <= 0) {
-						if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
-							if (cam->IsInFirstPerson()) {
-								cam->ForceThirdPerson();  //if player is in first person, stagger them in thirdperson.
-							}
-						}
-						actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
-						//actor->pad0EC = static_cast<std::uint32_t>(maxPoise);	  // remember earlier when we calculated max poise health?
-						if (TrueHUDControl::GetSingleton()->g_trueHUD) {
-							TrueHUDControl::GetSingleton()->g_trueHUD->FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
-						}
-						if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {  // if creature, use normal beh
-							actor->SetGraphVariableFloat(ptr->staggerMagn, 1.00f);
-							actor->NotifyAnimationGraph(ptr->ae_Stagger);  // play animation
+					if (actor->HasKeyword(ptr->kDragon)) {	// check if explosion, dragon, giant attack or dwarven
+						if (stagDir > 0.25f && stagDir < 0.75f) {
+							str = ptr->poiseLargeFwd;
 						} else {
-							if (actor->HasKeyword(ptr->kDragon)) {
-								if (stagDir > 0.25f && stagDir < 0.75f) {
-									str = ptr->poiseLargestFwd;
-								} else {
-									str = ptr->poiseLargestBwd;
-								}
-								actor->NotifyAnimationGraph(str);  // if those, play tier 4
-							} else {
-								if (stagDir > 0.25f && stagDir < 0.75f) {
-									str = ptr->poiseMedFwd;
-								} else {
-									str = ptr->poiseMedBwd;
-								}
-								actor->NotifyAnimationGraph(str);  // if not those, play tier 2
-							}
-						}                    
-                    } else {
-						return; // Concentration spells spam magic poise calculation. To prevent stupid staggerlocks, we only stagger once per Poise meter for concentration spells. 
-                    }
-                }
-
-
-                if (poise <= 0) {
-					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
-						if (cam->IsInFirstPerson()) {
-							cam->ForceThirdPerson();    //if player is in first person, stagger them in thirdperson.
+							str = ptr->poiseLargeBwd;
 						}
-					}
-                    actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
-                    //actor->pad0EC = static_cast<std::uint32_t>(maxPoise); // remember earlier when we calculated max poise health?
-                    if (TrueHUDControl::GetSingleton()->g_trueHUD) {
-                        TrueHUDControl::GetSingleton()->g_trueHUD->
-                            FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
-                    }
-                    if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) { // if creature, use normal beh
-                        actor->SetGraphVariableFloat(ptr->staggerMagn, 1.00f);
-                        actor->NotifyAnimationGraph(ptr->ae_Stagger);          // play animation
-                    } else {
-						if (actor->HasKeyword(ptr->kDragon)) {
-                            if (stagDir > 0.25f && stagDir < 0.75f) {
-                                str = ptr->poiseLargestFwd;
-                            } 
-                            else {
-                                str = ptr->poiseLargestBwd;
-                            }
-                            actor->NotifyAnimationGraph(str);         // if those, play tier 4
-                        } else {
-                            if (stagDir > 0.25f && stagDir < 0.75f) {
-                                str = ptr->poiseMedFwd;
-                            } 
-                            else {
-                                str = ptr->poiseMedBwd;
-                            }
-                            actor->NotifyAnimationGraph(str);  // if not those, play tier 2
-                        }
-                    }
-                } else if (poise <= threshhold0) {
-					if (oriPoise <= threshhold0) {
-						return;
-					}
-					if (ptr->ForceThirdPerson && actor->IsPlayerRef()) {
-						if (cam->IsInFirstPerson()) {
-							cam->ForceThirdPerson();
+						actor->NotifyAnimationGraph(str);  // if those, play tier 3
+					} else {
+						if (stagDir > 0.25f && stagDir < 0.75f) {
+							str = ptr->poiseMedFwd;
+						} else {
+							str = ptr->poiseMedBwd;
 						}
+						actor->NotifyAnimationGraph(str);  // if block, set pushback, ! play tier 2
 					}
-                    actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
-                    if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) { // if creature, use normal beh
-                        actor->SetGraphVariableFloat(ptr->staggerMagn, 0.75f);
-                        actor->NotifyAnimationGraph(ptr->ae_Stagger);
-                    } else {
-						if (actor->HasKeyword(ptr->kDragon)) {	// check if explosion, dragon, giant attack or dwarven
-                            if (stagDir > 0.25f && stagDir < 0.75f) {
-                                str = ptr->poiseLargeFwd;
-                            } 
-                            else {
-                                str = ptr->poiseLargeBwd;
-                            }
-                            actor->NotifyAnimationGraph(str);           // if those, play tier 3
-                        } 
-                        else {
-                            if (stagDir > 0.25f && stagDir < 0.75f) {
-                                str = ptr->poiseMedFwd;
-                            } 
-                            else {
-                                str = ptr->poiseMedBwd;
-                            }
-                            actor->NotifyAnimationGraph(str); // if block, set pushback, ! play tier 2
-                        }
-                    }
-                } else if (poise <= threshhold1) {
-					if (oriPoise <= threshhold1) {
-						return;
+				}
+			} else if (poise <= threshhold1) {
+				if (oriPoise <= threshhold1) {
+					return;
+				}
+				actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
+				if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {
+					actor->SetGraphVariableFloat(ptr->staggerMagn, 0.50f);
+					actor->NotifyAnimationGraph(ptr->ae_Stagger);
+				} else {
+					if (actor->HasKeyword(ptr->kDragon)) {
+						if (stagDir > 0.25f && stagDir < 0.75f) {
+							str = ptr->poiseLargeFwd;
+						} else {
+							str = ptr->poiseLargeBwd;
+						}
+						actor->NotifyAnimationGraph(str);  // play tier 3 again
+					} else {
+						if (stagDir > 0.25f && stagDir < 0.75f) {
+							str = ptr->poiseSmallFwd;
+						} else {
+							str = ptr->poiseSmallBwd;
+						}
+						actor->NotifyAnimationGraph(str);
 					}
-                    actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
-                    if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {
-                        actor->SetGraphVariableFloat(ptr->staggerMagn, 0.50f);
-                        actor->NotifyAnimationGraph(ptr->ae_Stagger);
-                    } else {
-                        if (actor->HasKeyword(ptr->kDragon)) {
-                            if (stagDir > 0.25f && stagDir < 0.75f) {
-                                str = ptr->poiseLargeFwd;
-                            } 
-                            else {
-                                str = ptr->poiseLargeBwd;
-                            }
-                            actor->NotifyAnimationGraph(str);  // play tier 3 again
-                        } 
-                        else {
-                            if (stagDir > 0.25f && stagDir < 0.75f) {
-                                str = ptr->poiseSmallFwd;
-                            } 
-                            else {
-                                str = ptr->poiseSmallBwd;
-                            }
-                            actor->NotifyAnimationGraph(str);
-                        }
-                    }
-				} else if (poise <= threshhold2) {
-					if (oriPoise <= threshhold2) {
-						return;
+				}
+			} else if (poise <= threshhold2) {
+				if (oriPoise <= threshhold2) {
+					return;
+				}
+				actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
+				if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {
+					actor->SetGraphVariableFloat(ptr->staggerMagn, 0.25f);
+					actor->NotifyAnimationGraph(ptr->ae_Stagger);
+				} else {
+					if (stagDir > 0.25f && stagDir < 0.75f) {
+						str = ptr->poiseSmallFwd;
+					} else {
+						str = ptr->poiseSmallBwd;
 					}
-                    actor->SetGraphVariableFloat(ptr->staggerDire, stagDir); // set direction
-                    if (actor->HasKeyword(ptr->kCreature) || actor->HasKeyword(ptr->kDwarven)) {
-                        actor->SetGraphVariableFloat(ptr->staggerMagn, 0.25f);
-                        actor->NotifyAnimationGraph(ptr->ae_Stagger);
-                    } 
-                    else {
-                        if (stagDir > 0.25f && stagDir < 0.75f) {
-                            str = ptr->poiseSmallFwd;
-                        } 
-                        else {
-                            str = ptr->poiseSmallBwd;
-                        }
-                        actor->NotifyAnimationGraph(str);
-                    }
-                }
-            }
-        }
-    }
-    return;
+					actor->NotifyAnimationGraph(str);
+				}
+			}
+	}
 }
 
 void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData, RE::TESObjectREFR* a_target)
@@ -755,7 +734,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 
 	} else {
 		auto MAttacker = a_hitData->caster->GetCasterAsActor();
-		if (MAttacker == NULL) {
+		if (MAttacker == nullptr) {
 			return;
 		} else if (MAttacker) {
 			if (auto actor = a_target->As<RE::Actor>(); actor) {
@@ -765,9 +744,9 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 				auto ptr = Loki::PoiseMod::GetSingleton();
 
 				auto nowTime = uint32_t(std::time(nullptr) % UINT32_MAX);
-				auto lastStaggerTime = actor->pad1EC;
+				auto lastStaggerTime = actor->GetActorRuntimeData().pad1EC;
 				if (lastStaggerTime > nowTime) {
-					actor->pad1EC = nowTime;
+					actor->GetActorRuntimeData().pad1EC = nowTime;
 					lastStaggerTime = 0;
 				} else {
 					if (nowTime - lastStaggerTime < ptr->StaggerDelay) {
@@ -790,8 +769,8 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 					return;
 				}
 
-				auto avHealth = actor->GetActorValue(RE::ActorValue::kHealth);
-				auto avParalysis = actor->GetActorValue(RE::ActorValue::kParalysis);
+				auto avHealth = actor->GetActorBase()->GetActorValue(RE::ActorValue::kHealth);
+				auto avParalysis = actor->GetActorBase()->GetActorValue(RE::ActorValue::kParalysis);
 				if (avHealth <= 0.05f || actor->IsInKillMove() || avParalysis) {
 					return;
 				}
@@ -825,7 +804,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 					return;
 				}
 
-				const auto zeffect = MAttacker->GetActiveEffectList();
+				const auto zeffect = MAttacker->GetMagicTarget()->GetActiveEffectList();
 				if (zeffect) {
 					for (const auto& aeffect : *zeffect) {
 						if (!aeffect) {
@@ -868,7 +847,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 
 				if (blk) {
 					if (actor->IsPlayerRef()) {
-						float BlockMult = (actor->GetBaseActorValue(RE::ActorValue::kBlock));
+						float BlockMult = (actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kBlock));
 						if (BlockMult >= 20.0f) {
 							float fLogarithm = ((BlockMult - 20) / 50 + 1);
 							double PlayerBlockMult = (0.7 - log10(fLogarithm));
@@ -891,14 +870,14 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 				//	a_result = 0.00f;
 				//}
 
-				int poise = 0;
-				int oriPoise = 0;
+				uint32_t poise = 0;
+				uint32_t oriPoise = 0;
 				float maxPoise = ptr->CalculateMaxPoise(actor);
 
 				if (ptr->StaggerEffectList.contains(EffectSetting)) {
-					actor->pad0EC = 0;
+					actor->GetActorRuntimeData().pad0EC = 0;
 				} else {
-					auto poiseRef = std::atomic_ref(actor->pad0EC);
+					auto poiseRef = std::atomic_ref(actor->GetActorRuntimeData().pad0EC);
 					oriPoise = poiseRef.load();
 					auto newPoise = 0;
 					auto newPoiseSet = 0;
@@ -907,22 +886,22 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 						if (poise > oriPoise) {
 							return;
 						}
-						newPoise = poise - (int)a_result;
+						newPoise = poise - static_cast<uint32_t>(a_result);
 						newPoiseSet = newPoise;
 						if (newPoiseSet <= 0) {
-							newPoiseSet = (int)maxPoise;
+							newPoiseSet = static_cast<uint32_t>(maxPoise);
 						}
 					} while (!poiseRef.compare_exchange_strong(poise, newPoiseSet));
 					oriPoise = poise;
 					poise = newPoise;
 					if (poise > 100000) {
 						//logger::info("PoiseCalculateExplosion strange poise value {}", poise);
-						actor->pad0EC = 0;
+						actor->GetActorRuntimeData().pad0EC = 0;
 					}
 				}
 
 				if (poise <= 0) {
-					if (!std::atomic_ref(actor->pad1EC).compare_exchange_strong(lastStaggerTime, nowTime)) {
+					if (!std::atomic_ref(actor->GetActorRuntimeData().pad1EC).compare_exchange_strong(lastStaggerTime, nowTime)) {
 						//logger::info("PoiseCalculateExplosion prevent stagger lock", poise);
 						return;
 					}
@@ -955,7 +934,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 				}
 
 				//Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
-				static RE::BSFixedString str = NULL;
+				static RE::BSFixedString str = nullptr;
 				auto cam = RE::PlayerCamera::GetSingleton();
 
 				if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
@@ -966,7 +945,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 							}
 						}
 						actor->SetGraphVariableFloat(ptr->staggerDire, stagDir);  // set direction
-						//actor->pad0EC = static_cast<std::uint32_t>(maxPoise);  // remember earlier when we calculated max poise health?	
+						//actor->pad0EC = static_cast<std::uint32_t>(maxPoise);  // remember earlier when we calculated max poise health?
 						if (TrueHUDControl::GetSingleton()->g_trueHUD) {
 							TrueHUDControl::GetSingleton()->g_trueHUD->FlashActorSpecialBar(SKSE::GetPluginHandle(), actor->GetHandle(), false);
 						}
@@ -1054,7 +1033,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 							} else {
 								str = ptr->poiseMedBwd;
 							}
-							actor->NotifyAnimationGraph(str); 
+							actor->NotifyAnimationGraph(str);
 						}
 					}
 				} else if (poise <= threshhold1) {
@@ -1133,24 +1112,19 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
     bool isSilver = false;
 
     if (!weap) {
-        if (!aggressor) {
-            a_result = 8.00f;
-        }
-        else {
-            auto attackerWeap = aggressor->GetAttackingWeapon();
-            if (!attackerWeap) {
-                a_result = 8.00f;
-            }
-            else {
-                a_result = attackerWeap->GetWeight();
-            }
-        }
+    	auto attackerWeap = aggressor->GetAttackingWeapon();
+    	if (!attackerWeap) {
+    		a_result = 8.00f;
+    	}
+    	else {
+    		a_result = attackerWeap->GetWeight();
+    	}
     }
     else {
         a_result = weap->weight;
 
         switch (weap->weaponData.animationType.get()) {
-        
+
             case RE::WEAPON_TYPE::kBow: {
                 a_result *= ptr->BowMult;
                 break;
@@ -1161,34 +1135,25 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
             }
             case RE::WEAPON_TYPE::kHandToHandMelee: {
                 if (weap->HasKeywordID(0x19AAB3)) {
-                    a_result *= ptr->CaestusMult;
-                    break;
-                }
-                else if (weap->HasKeywordID(0x19AAB4)) {
-                    a_result *= ptr->ClawMult;
-                    break;
-                }
-                else {
-					if (!aggressor) {
-						a_result = 8.00f;  //if nullcheck fail just set it to 10 meh.                                                          
+						a_result *= ptr->CaestusMult;
 						break;
 					}
-                    else {
-						a_result = (aggressor->equippedWeight / 2);   //conner: for npc we use 1/2 of equip weight. Clamped to 50.						                                                                    
-						if (a_result > 50.0f) {
-							a_result = 50.0f;
-						} 
-                        if (aggressor->IsPlayerRef()) {
-							a_result = (aggressor->GetActorValue(RE::ActorValue::kUnarmedDamage) / 2);  //conner: we calculate player poise dmg as half of unarmed damage. Clamp to 25 max.
-							if (a_result > 25.0f) {
-								a_result = 25.0f;
-							}
-                        }
+					if (weap->HasKeywordID(0x19AAB4)) {
+						a_result *= ptr->ClawMult;
 						break;
-                    }
-                }
-                a_result *= ptr->Hand2Hand;
-                break;
+					}
+
+					a_result = (aggressor->GetEquippedWeight() / 2);  //conner: for npc we use 1/2 of equip weight. Clamped to 50.
+					if (a_result > 50.0f) {
+						a_result = 50.0f;
+					}
+					if (aggressor->IsPlayerRef()) {
+						a_result = (aggressor->GetActorBase()->GetActorValue(RE::ActorValue::kUnarmedDamage) / 2);	//conner: we calculate player poise dmg as half of unarmed damage. Clamp to 25 max.
+						if (a_result > 25.0f) {
+							a_result = 25.0f;
+						}
+					}
+					break;
             }
             case RE::WEAPON_TYPE::kOneHandAxe: {
                 a_result *= ptr->OneHandAxe;
@@ -1239,14 +1204,14 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
                 a_result *= ptr->TwoHandSword;
                 break;
             }
-        
+
         }
         if (weap->HasKeyword(ptr->WeapMaterialSilver)) isSilver = true;
 
         //imo bound weapons shouldnt be affected by weapon multipliers.
 		if (weap->weaponData.flags2.any(RE::TESObjectWEAP::Data::Flag2::kBoundWeapon)) {
 			if (aggressor) {
-				a_result = (8 + (aggressor->GetBaseActorValue(RE::ActorValue::kConjuration) * 0.12f));
+				a_result = (8 + (aggressor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kConjuration) * 0.12f));
 				//RE::ConsoleLog::GetSingleton()->Print("Using bound weapon flag, poise damage is %f", a_result);
 			}
 		}
@@ -1269,20 +1234,20 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
     if (aggressor->HasKeywordString("ActorTypeCreature") || aggressor->HasKeywordString("ActorTypeDwarven")) {
 	    for (auto idx : ptr->poiseRaceMap) {
 			if (aggressor) {
-				RE::TESRace* a_actorRace = aggressor->race;
+				RE::TESRace* a_actorRace = aggressor->GetRace();
 			    RE::TESRace* a_mapRace = idx.first;
 			    if (a_actorRace && a_mapRace) {
 				    if (a_actorRace->formID == a_mapRace->formID) {
 						float CreatureMult = ptr->CreatureDMGMultiplier;
 				        a_result = CreatureMult * idx.second[1];
 						break;
-			        } 
+			        }
 			    }
 		    }
 	    }
     }
 
-    const auto zeffect = aggressor->GetActiveEffectList();
+    const auto zeffect = aggressor->GetMagicTarget()->GetActiveEffectList();
 	if (zeffect) {
 		for (const auto& aeffect : *zeffect) {
 			if (!aeffect) {
@@ -1308,8 +1273,8 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 		}
 	}
 
-    //ward buff is applied after keyword buffs but before hyperarmor and other modifiers 
-	float WardPower = a_actor->GetActorValue(RE::ActorValue::kWardPower);
+    //ward buff is applied after keyword buffs but before hyperarmor and other modifiers
+	float WardPower = a_actor->GetActorBase()->GetActorValue(RE::ActorValue::kWardPower);
 	float WardPowerMult = ptr->WardPowerWeight;
 	a_result -= (WardPower * WardPowerMult);
 	(a_result > 0.0f) ? a_result : (a_result = 0.0f);
@@ -1331,20 +1296,20 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 
         if (data->data.flags == RE::AttackData::AttackFlag::kBashAttack) {
 			if (aggressorattack) {
-				a_result *= ptr->BashParryMult;   
+				a_result *= ptr->BashParryMult;
                 //RE::ConsoleLog::GetSingleton()->Print("BASH PARRY!! VERY FANTASTIC!");
 				//logger::info("BASH PARRY!! VERY FANTASTIC!");
-            } 
+            }
             else {
                 a_result *= ptr->BashMult;
 			}
         }
     }
-    
+
     if (blk) {
 
 		if (a_actor->IsPlayerRef()) {
-			float BlockMult = (a_actor->GetBaseActorValue(RE::ActorValue::kBlock));
+			float BlockMult = (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kBlock));
 			if (BlockMult >= 20.0f) {
 				float fLogarithm = ((BlockMult - 20) / 50 + 1);
 				double PlayerBlockMult = (0.7 - log10(fLogarithm));
@@ -1354,7 +1319,7 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
             else {
 				a_result *= 0.7f;
             }
-		} 
+		}
         else {
 			a_result *= ptr->BlockedMult;
 		}
@@ -1362,26 +1327,26 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 
     if (atk) {
 		if (a_actor->IsPlayerRef()) {
-			float LightArmorMult = (a_actor->GetBaseActorValue(RE::ActorValue::kLightArmor));
+			float LightArmorMult = (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kLightArmor));
 			float Slope = ptr->HyperArmorLogSlope; //default = 50
 			if (LightArmorMult >= 20.0f) {
 				float fLogarithm = ( (LightArmorMult - 20) / Slope + 1);
 				double PlayerHyperArmourMult = (0.8 - log2(fLogarithm) * 0.4);
 				//RE::ConsoleLog::GetSingleton()->Print("logarithm value: %f", fLogarithm);
 				//RE::ConsoleLog::GetSingleton()->Print("Player hyper armor LOG Calculation: %f", PlayerHyperArmourMult);
-				PlayerHyperArmourMult = PlayerHyperArmourMult >= 0.0 ? PlayerHyperArmourMult : 0.0;  //if value is negative, player is at a dumb level so just give them full damage mitigation. 
+				PlayerHyperArmourMult = PlayerHyperArmourMult >= 0.0 ? PlayerHyperArmourMult : 0.0;  //if value is negative, player is at a dumb level so just give them full damage mitigation.
 				a_result *= (float)PlayerHyperArmourMult;
 				//RE::ConsoleLog::GetSingleton()->Print("Player hyper armor multipler: %f", (float)PlayerHyperArmourMult);
 				//RE::ConsoleLog::GetSingleton()->Print("Damage after calculation of hyperarmor: %f", a_result);
 				//logger::info("player hyperarmor scaled to light armor");
-			} 
+			}
             else {
 				a_result *= 0.8f;
 				//RE::ConsoleLog::GetSingleton()->Print("Player light armor is 20 or below, using default hyperarmor of %f", ptr->HyperArmourMult);
 				//logger::info("player hyperarmor NOT scaled to light armor");
 			}
 
-        } 
+        }
         else {
 			a_result *= ptr->NPCHyperArmourMult;
 		}
@@ -1389,8 +1354,8 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
     }
 
     if (castleft || castright || castdual) {
-		if (a_actor->IsPlayerRef()) { 
-		float LightArmorMult = (a_actor->GetBaseActorValue(RE::ActorValue::kLightArmor));
+		if (a_actor->IsPlayerRef()) {
+		float LightArmorMult = (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kLightArmor));
         float Slope = ptr->SpellHyperLogSlope; //default = 60
 		   if (LightArmorMult >= 20.0f) {
 			   float fLogarithm = ((LightArmorMult - 20) / Slope + 1);
@@ -1408,7 +1373,7 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 			   //RE::ConsoleLog::GetSingleton()->Print("Player light armor is 20 or below, using default spell hyperarmor of %f", ptr->HyperArmourMult);
 			   //logger::info("player SPELL hyperarmor NOT scaled to light armor");
 		   }
-        } 
+        }
         else {
 			a_result *= ptr->NPCSpellHyperArmourMult;
 			//logger::info("npc spell hyperarmor calculated");
@@ -1427,7 +1392,7 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 	//	RE::ConsoleLog::GetSingleton()->Print("Shout MULT active");
 	//}
 
-    //quick mathematics: Base hyperarmor is 20% damage reduction. Base spell multiplier is 1.5x. Light armor buffs hyperarmor. 
+    //quick mathematics: Base hyperarmor is 20% damage reduction. Base spell multiplier is 1.5x. Light armor buffs hyperarmor.
     //First 20 levels of ActorValue do not count for scaling. The remaining 80 levels scale damage reduction logarithmically
 
 
@@ -1442,38 +1407,38 @@ float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor) {
 	float level = a_actor->GetLevel();
 	float levelweight = ptr->MaxPoiseLevelWeight;
     float levelweightplayer = ptr->MaxPoiseLevelWeightPlayer;
-	float ArmorRating = a_actor->GetActorValue(RE::ActorValue::kDamageResist);
+	float ArmorRating = a_actor->GetActorBase()->GetActorValue(RE::ActorValue::kDamageResist);
 	float ArmorWeight = ptr->ArmorLogarithmSlope;
 	float ArmorWeightPlayer = ptr->ArmorLogarithmSlopePlayer;
 	float RealWeight = ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_actor);
 
 	level = (level < 100 ? level : 100);
 	ArmorRating = (ArmorRating > 0 ? ArmorRating : 0);
-	float a_result = (RealWeight + (levelweight * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeight + 1));
+	float a_result = (RealWeight + (levelweight * level) + (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeight + 1));
 	if (a_actor->IsPlayerRef()) {
 		level = (level < 60 ? level : 60);
-		a_result = (RealWeight + (levelweightplayer * level) + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeightPlayer + 1));
+		a_result = (RealWeight + (levelweightplayer * level) + (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeightPlayer + 1));
     }
 
-        
+
 
 
     //KFC Original Recipe.
     if (ptr->UseOldFormula) {
-		a_result = (RealWeight + (a_actor->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
+		a_result = (RealWeight + (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
     }
 
-    if (a_actor && a_actor->race->HasKeywordString("ActorTypeCreature") || a_actor->race->HasKeywordString("ActorTypeDwarven")) {
+    if (a_actor && a_actor->GetRace()->HasKeywordString("ActorTypeCreature") || a_actor->GetRace()->HasKeywordString("ActorTypeDwarven")) {
 	    for (auto idx : ptr->poiseRaceMap) {
-			if (a_actor && a_actor->race) {
-			    RE::TESRace* a_actorRace = a_actor->race;
+			if (a_actor && a_actor->GetRace()) {
+			    RE::TESRace* a_actorRace = a_actor->GetRace();
 			    RE::TESRace* a_mapRace = idx.first;
 			    if (a_actorRace && a_mapRace) {
 				    if (a_actorRace->formID == a_mapRace->formID) {
 						float CreatureMult = ptr->CreatureHPMultiplier;
 						a_result = CreatureMult * idx.second[0];
 						break;
-			        } 
+			        }
 			    }
 		    }
 	    }
@@ -1482,13 +1447,12 @@ float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor) {
     if (ptr->ScalePHealthGlobal) {
 		if (a_actor->IsPlayerRef()) {
 			a_result *= ptr->GlobalPlayerPHealthMult;
-		} 
-        else {
+		} else {
 			a_result *= ptr->GlobalPHealthMult;
 		}
 	}
 
-    const auto effect = a_actor->GetActiveEffectList();
+    const auto effect = a_actor->GetMagicTarget()->GetActiveEffectList();
 	if (effect) {
 		for (const auto& veffect : *effect) {
 			if (!veffect) {
@@ -1528,17 +1492,17 @@ bool Loki::PoiseMod::IsActorKnockdown(RE::Character* a_this, std::int64_t a_unk)
 
     auto ptr = Loki::PoiseMod::GetSingleton();
 
-    auto avHealth = a_this->GetActorValue(RE::ActorValue::kHealth);
+    auto avHealth = a_this->GetActorBase()->GetActorValue(RE::ActorValue::kHealth);
     if (a_this->IsOnMount() || a_this->IsInMidair() || avHealth <= 0.05f) {
         return _IsActorKnockdown(a_this, a_unk);
     }
 
-	auto kGrabbed = a_this->GetActorValue(RE::ActorValue::kGrabbed);
+	auto kGrabbed = a_this->GetActorBase()->GetActorValue(RE::ActorValue::kGrabbed);
 	if (kGrabbed == 1) {
 		return _IsActorKnockdown(a_this, a_unk);
-	} 
+	}
 
-    static RE::BSFixedString str = NULL;
+    static RE::BSFixedString str = nullptr;
 
 	if ((a_this->IsPlayerRef() && ptr->PlayerRagdollReplacer) || (!a_this->IsPlayerRef() && ptr->NPCRagdollReplacer)) {
         float knockdownDirection = 0.00f;
@@ -1554,7 +1518,7 @@ bool Loki::PoiseMod::IsActorKnockdown(RE::Character* a_this, std::int64_t a_unk)
         }
         a_this->NotifyAnimationGraph(str);
         return false;
-    } 
+    }
 
     return _IsActorKnockdown(a_this, a_unk);
 
@@ -1564,16 +1528,16 @@ float Loki::PoiseMod::GetSubmergedLevel(RE::Actor* a_actor, float a_zPos, RE::TE
 
     auto ptr = Loki::PoiseMod::GetSingleton();
 
-    auto avHealth = a_actor->GetActorValue(RE::ActorValue::kHealth);
+    auto avHealth = a_actor->GetActorBase()->GetActorValue(RE::ActorValue::kHealth);
     if (avHealth <= 0.05f || !ptr->PoiseRegenEnabled) { return _GetSubmergedLevel(a_actor, a_zPos, a_cell); }
 
-    if (!a_actor->HasMagicEffect(ptr->poiseDelayEffect)) {
+    if (!a_actor->GetMagicTarget()->HasMagicEffect(ptr->poiseDelayEffect)) {
         auto a_result = (int)CalculateMaxPoise(a_actor);
 		if (a_result > 100000) {
 			//logger::info("GetSubmergedLevel strange poise value {}", a_result);
 			a_result = 0;
 		}
-        a_actor->pad0EC = a_result;
+        a_actor->GetActorRuntimeData().pad0EC = a_result;
     }
 
     return _GetSubmergedLevel(a_actor, a_zPos, a_cell);
@@ -1583,10 +1547,10 @@ float Loki::PoiseMod::GetSubmergedLevel(RE::Actor* a_actor, float a_zPos, RE::TE
 void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData) {
     auto ptr = Loki::PoiseMod::GetSingleton();
 
-	auto nowTime = uint32_t(std::time(nullptr) % UINT32_MAX);
-	auto lastStaggerTime = a_actor->pad1EC;
+	auto nowTime = static_cast<uint32_t>(std::time(nullptr) % UINT32_MAX);
+	auto lastStaggerTime = a_actor->GetActorRuntimeData().pad1EC;
 	if (lastStaggerTime > nowTime) {
-		a_actor->pad1EC = nowTime;
+		a_actor->GetActorRuntimeData().pad1EC = nowTime;
 		lastStaggerTime = 0;
 	} else {
 		if (nowTime - lastStaggerTime < ptr->StaggerDelay) {
@@ -1598,8 +1562,8 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
     using HitFlag = RE::HitData::Flag;
     RE::FormID kLurker = 0x14495;
 
-    auto avHealth = a_actor->GetActorValue(RE::ActorValue::kHealth);
-    auto avParalysis = a_actor->GetActorValue(RE::ActorValue::kParalysis);
+    auto avHealth = a_actor->GetActorBase()->GetActorValue(RE::ActorValue::kHealth);
+    auto avParalysis = a_actor->GetActorBase()->GetActorValue(RE::ActorValue::kParalysis);
     if (avHealth <= 0.05f || a_actor->IsInKillMove() || avParalysis) { return _ProcessHitEvent(a_actor, a_hitData); }
 
     if (a_actor->IsPlayerRef() && !ptr->PlayerPoiseEnabled) { return _ProcessHitEvent(a_actor, a_hitData); }
@@ -1616,12 +1580,12 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
         dmg = 0.00f;
     }
 
-	int poise = 0;
-	int oriPoise = 0;
+	uint32_t poise = 0;
+	uint32_t oriPoise = 0;
 	float maxPoise = CalculateMaxPoise(a_actor);
 
 	{
-		auto poiseRef = std::atomic_ref(a_actor->pad0EC);
+		auto poiseRef = std::atomic_ref(a_actor->GetActorRuntimeData().pad0EC);
 		oriPoise = poiseRef.load();
 		auto newPoise = 0;
 		auto newPoiseSet = 0;
@@ -1630,22 +1594,22 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
 			if (poise > oriPoise) {
 				return _ProcessHitEvent(a_actor, a_hitData);
 			}
-			newPoise = poise - (int)dmg;
+			newPoise = poise - static_cast<uint32_t>(dmg);
 			newPoiseSet = newPoise;
 			if (newPoiseSet <= 0) {
-				newPoiseSet = (int)maxPoise;
+				newPoiseSet = static_cast<uint32_t>(maxPoise);
 			}
 		} while (!poiseRef.compare_exchange_strong(poise, newPoiseSet));
 		oriPoise = poise;
 		poise = newPoise;
 		if (poise > 100000) {
 			//logger::info("ProcessHitEvent strange poise value {}", poise);
-			a_actor->pad0EC = 0;
+			a_actor->GetActorRuntimeData().pad0EC = 0;
 		}
 	}
 
 	if (poise <= 0) {
-		if (!std::atomic_ref(a_actor->pad1EC).compare_exchange_strong(lastStaggerTime, nowTime)) {
+		if (!std::atomic_ref(a_actor->GetActorRuntimeData().pad1EC).compare_exchange_strong(lastStaggerTime, nowTime)) {
 			//logger::info("ProcessHitEvent prevent stagger lock", poise);
 			return _ProcessHitEvent(a_actor, a_hitData);
 		}
@@ -1655,13 +1619,13 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
         RE::ConsoleLog::GetSingleton()->Print("---");
         RE::ConsoleLog::GetSingleton()->Print("Aggressor's Weight: %f", a_hitData.aggressor.get()->GetWeight());
 		RE::ConsoleLog::GetSingleton()->Print("Aggressor's EquipWeight: %f", ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_hitData.aggressor.get().get()));
-        RE::ConsoleLog::GetSingleton()->Print("Aggressor's Current Poise Health: %d", a_hitData.aggressor.get()->pad0EC);
+        RE::ConsoleLog::GetSingleton()->Print("Aggressor's Current Poise Health: %d", a_hitData.aggressor.get()->GetActorRuntimeData().pad0EC);
         RE::ConsoleLog::GetSingleton()->Print("Aggresssor's Max Poise Health: %f", CalculateMaxPoise(a_hitData.aggressor.get().get()));
         RE::ConsoleLog::GetSingleton()->Print("Aggressor's Poise Damage: %f", dmg);
         RE::ConsoleLog::GetSingleton()->Print("-");
         RE::ConsoleLog::GetSingleton()->Print("Victim's Weight: %f", a_actor->GetWeight());
 		RE::ConsoleLog::GetSingleton()->Print("Victim's EquipWeight: %f", ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_actor));
-		RE::ConsoleLog::GetSingleton()->Print("Victim's Current Poise Health: %d %d", poise, a_actor->pad0EC);
+		RE::ConsoleLog::GetSingleton()->Print("Victim's Current Poise Health: %d %d", poise, a_actor->GetActorRuntimeData().pad0EC);
         RE::ConsoleLog::GetSingleton()->Print("Victim's Max Poise Health %f", CalculateMaxPoise(a_actor));
         RE::ConsoleLog::GetSingleton()->Print("---");
     }
@@ -1675,7 +1639,7 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
 	if (a) {
 		a->CastSpellImmediate(ptr->poiseDelaySpell, false, a_actor, 1.0f, false, 0.0f, 0);
 	}
-    
+
 	auto threshhold0 = maxPoise * ptr->poiseBreakThreshhold0;
 	if (threshhold0 <= 2) {
 		threshhold0 = 2;
@@ -1691,7 +1655,7 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
 
 	//Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
 	bool isBlk = false;
-    static RE::BSFixedString str = NULL;
+    static RE::BSFixedString str = nullptr;
     a_actor->GetGraphVariableBool(ptr->isBlocking, isBlk);
 
 	auto cam = RE::PlayerCamera::GetSingleton();
@@ -1711,30 +1675,30 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
         if (a_actor->HasKeyword(ptr->kCreature) || a_actor->HasKeyword(ptr->kDwarven)) { // if creature, use normal beh
             a_actor->SetGraphVariableFloat(ptr->staggerMagn, 1.00f);
             a_actor->NotifyAnimationGraph(ptr->ae_Stagger);          // play animation
-        } 
+        }
         else {
             if (a_hitData.flags == HitFlag::kExplosion || a_hitData.aggressor.get()->HasKeyword(ptr->kDragon)
                 || a_hitData.aggressor.get()->HasKeyword(ptr->kGiant) || a_hitData.aggressor.get()->HasKeyword(ptr->kDwarven)
-                || a_hitData.aggressor.get()->HasKeyword(ptr->kTroll) || a_hitData.aggressor.get()->race->formID == kLurker) {  // check if explosion, dragon, giant attack or dwarven
+                || a_hitData.aggressor.get()->HasKeyword(ptr->kTroll) || a_hitData.aggressor.get()->GetRace()->formID == kLurker) {  // check if explosion, dragon, giant attack or dwarven
                 if (stagDir > 0.25f && stagDir < 0.75f) {
                     str = ptr->poiseLargestFwd;
-                } 
+                }
                 else {
                     str = ptr->poiseLargestBwd;
                 }
                 a_actor->NotifyAnimationGraph(str);         // if those, play tier 4
-            } 
+            }
             else {
                 if (stagDir > 0.25f && stagDir < 0.75f) {
                     str = ptr->poiseMedFwd;
-                } 
+                }
                 else {
                     str = ptr->poiseMedBwd;
                 }
                 a_actor->NotifyAnimationGraph(str);  // if not those, play tier 2
             }
         }
-    } 
+    }
     else if (a_actor->Is3DLoaded() && poise < threshhold0) {
 		if (oriPoise <= threshhold0) {
 			return _ProcessHitEvent(a_actor, a_hitData);
@@ -1748,30 +1712,30 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
         if (a_actor->HasKeyword(ptr->kCreature) || a_actor->HasKeyword(ptr->kDwarven)) { // if creature, use normal beh
             a_actor->SetGraphVariableFloat(ptr->staggerMagn, 0.75f);
             a_actor->NotifyAnimationGraph(ptr->ae_Stagger);
-        } 
+        }
         else {
             if (a_hitData.flags == HitFlag::kExplosion || a_hitData.aggressor.get()->HasKeyword(ptr->kDragon)
                 || a_hitData.aggressor.get()->HasKeyword(ptr->kGiant) || a_hitData.aggressor.get()->HasKeyword(ptr->kDwarven)
-                || a_hitData.aggressor.get()->HasKeyword(ptr->kTroll) || a_hitData.aggressor.get()->race->formID == kLurker) {  // check if explosion, dragon, giant attack or dwarven
+                || a_hitData.aggressor.get()->HasKeyword(ptr->kTroll) || a_hitData.aggressor.get()->GetRace()->formID == kLurker) {  // check if explosion, dragon, giant attack or dwarven
                 if (stagDir > 0.25f && stagDir < 0.75f) {
                     str = ptr->poiseLargeFwd;
-                } 
+                }
                 else {
                     str = ptr->poiseLargeBwd;
                 }
                 a_actor->NotifyAnimationGraph(str);           // if those, play tier 3
-            } 
+            }
             else {
                 if (stagDir > 0.25f && stagDir < 0.75f) {
                     str = ptr->poiseMedFwd;
-                } 
+                }
                 else {
                     str = ptr->poiseMedBwd;
                 }
                 isBlk ? a_hitData.pushBack = 5.00 : a_actor->NotifyAnimationGraph(str); // if block, set pushback, ! play tier 2
             }
         }
-    } 
+    }
     else if (a_actor->Is3DLoaded() && poise < threshhold1) {
 		if (oriPoise <= threshhold1) {
 			return _ProcessHitEvent(a_actor, a_hitData);
@@ -1780,30 +1744,30 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
         if (a_actor->HasKeyword(ptr->kCreature) || a_actor->HasKeyword(ptr->kDwarven)) {
             a_actor->SetGraphVariableFloat(ptr->staggerMagn, 0.50f);
             a_actor->NotifyAnimationGraph(ptr->ae_Stagger);
-        } 
+        }
         else {
             if (a_hitData.flags == HitFlag::kExplosion || a_hitData.aggressor.get()->HasKeyword(ptr->kDragon)
                 || a_hitData.aggressor.get()->HasKeyword(ptr->kGiant) || a_hitData.aggressor.get()->HasKeyword(ptr->kDwarven)
-                || a_hitData.aggressor.get()->HasKeyword(ptr->kTroll) || a_hitData.aggressor.get()->race->formID == kLurker) {
+                || a_hitData.aggressor.get()->HasKeyword(ptr->kTroll) || a_hitData.aggressor.get()->GetRace()->formID == kLurker) {
                 if (stagDir > 0.25f && stagDir < 0.75f) {
                     str = ptr->poiseLargeFwd;
-                } 
+                }
                 else {
                     str = ptr->poiseLargeBwd;
                 }
                 a_actor->NotifyAnimationGraph(str);  // play tier 3 again
-            } 
+            }
             else {
                 if (stagDir > 0.25f && stagDir < 0.75f) {
                     str = ptr->poiseSmallFwd;
-                } 
+                }
                 else {
                     str = ptr->poiseSmallBwd;
                 }
                 isBlk ? a_hitData.pushBack = 3.75 : a_actor->NotifyAnimationGraph(str);
             }
         }
-    } 
+    }
     else if (a_actor->Is3DLoaded() && poise < threshhold2) {
 		if (oriPoise <= threshhold2) {
 			return _ProcessHitEvent(a_actor, a_hitData);
@@ -1812,11 +1776,11 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
         if (a_actor->HasKeyword(ptr->kCreature) || a_actor->HasKeyword(ptr->kDwarven)) {
             a_actor->SetGraphVariableFloat(ptr->staggerMagn, 0.25f);
             a_actor->NotifyAnimationGraph(ptr->ae_Stagger);
-        } 
+        }
         else {
             if (stagDir > 0.25f && stagDir < 0.75f) {
                 str = ptr->poiseSmallFwd;
-            } 
+            }
             else {
                 str = ptr->poiseSmallBwd;
             }
