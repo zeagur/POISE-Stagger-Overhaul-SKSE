@@ -1,6 +1,6 @@
 {
   "name": "loki-connerria-poisebreaker",
-  "version-string": "1.0.0",
+  "version-string": "2.0.0",
   "description": "Loki-forked ConnerRia's Poisebreaker",
   "license": "MIT",
   "dependencies": [

@@ -10,12 +10,20 @@
 #include "xbyak/xbyak.h"
 #include <spdlog/sinks/basic_file_sink.h>
 #include <toml++/toml.h>
+#include <shared_mutex>
+#include <unordered_set>
+#include <unordered_map>
+#include <atomic>
+#include <ctime>
+
+#include "Logger.h"
+#include "Loki_PluginTools.h"
+#include "POISE/TrueHUDAPI.h"
+#include "POISE/TrueHUDControl.h"
+#include "ActorCache.h"
+
 
 #define TRUEHUD_API_COMMONLIB
-
-#define DLLEXPORT __declspec(dllexport)
-
-namespace logger = SKSE::log;
 
 using namespace std::literals;
 
@@ -23,7 +31,7 @@ namespace stl
 {
 	using namespace SKSE::stl;
 	template <class T>
-	void write_thunk_call(std::uintptr_t a_src)
+	void write_thunk_call(const std::uintptr_t a_src)
 	{
 		auto& trampoline = SKSE::GetTrampoline();
 		SKSE::AllocTrampoline(14);
@@ -34,7 +42,7 @@ namespace stl
 	template <class F, size_t index, class T>
 	void write_vfunc()
 	{
-		REL::Relocation<std::uintptr_t> vtbl{ F::VTABLE[index] };
+		REL::Relocation<> vtbl{ F::VTABLE[index] };
 		T::func = vtbl.write_vfunc(T::size, T::thunk);
 	}
 

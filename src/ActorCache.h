@@ -1,19 +1,16 @@
 #pragma once
 
-#include <shared_mutex>
-#include <unordered_map>
-
 class TESFormDeleteEventHandler : public RE::BSTEventSink<RE::TESFormDeleteEvent>
 {
 public:
-	virtual RE::BSEventNotifyControl ProcessEvent(const RE::TESFormDeleteEvent* a_event, RE::BSTEventSource<RE::TESFormDeleteEvent>* a_eventSource);
+	RE::BSEventNotifyControl ProcessEvent(const RE::TESFormDeleteEvent* a_event, RE::BSTEventSource<RE::TESFormDeleteEvent>* a_eventSource) override;
 	static bool                      Register();
 };
 
 class TESEquipEventEventHandler : public RE::BSTEventSink<RE::TESEquipEvent>
 {
 public:
-	virtual RE::BSEventNotifyControl ProcessEvent(const RE::TESEquipEvent* a_event, RE::BSTEventSource<RE::TESEquipEvent>* a_eventSource);
+	RE::BSEventNotifyControl ProcessEvent(const RE::TESEquipEvent* a_event, RE::BSTEventSource<RE::TESEquipEvent>* a_eventSource) override;
 	static bool                      Register();
 };
 

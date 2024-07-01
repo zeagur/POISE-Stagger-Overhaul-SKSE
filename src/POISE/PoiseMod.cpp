@@ -1,6 +1,4 @@
 #include "PoiseMod.h"
-#include "ActorCache.h"
-#include <ctime>
 
 
 void Loki::PoiseMod::ReadPoiseTOML()
@@ -11,10 +9,10 @@ void Loki::PoiseMod::ReadPoiseTOML()
 
 	auto dataHandle = RE::TESDataHandler::GetSingleton();
 
-	const auto readToml = [&](std::filesystem::path path) {
-		logger::info("Reading {}...", path.string());
+	const auto readToml = [&](const std::filesystem::path& configPath) {
+		logger::info("Reading {}...", configPath.string());
 		try {
-			const auto tbl = toml::parse_file(path.c_str());
+			const auto tbl = toml::parse_file(configPath.c_str());
 			auto& arr = *tbl.get_as<toml::array>("race");
 			for (auto&& elem : arr) {
 				auto& raceTable = *elem.as_table();
@@ -25,8 +23,7 @@ void Loki::PoiseMod::ReadPoiseTOML()
 				logger::info("plugin -> {}", *plugin);
 				auto race = dataHandle->LookupForm<RE::TESRace>(*formID, *plugin);
 
-				auto poiseValues = raceTable["PoiseValues"].as_array();
-				if (poiseValues) {
+				if (const auto poiseValues = raceTable["PoiseValues"].as_array()) {
 					std::vector<float> vals = {};
 					for (auto& value : *poiseValues) {
 						logger::info("value -> {}", *value.value<float>());
@@ -55,9 +52,8 @@ void Loki::PoiseMod::ReadPoiseTOML()
 	readToml(baseToml);
 	if (std::filesystem::is_directory(path)) {
 		for (const auto& file : std::filesystem::directory_iterator(path)) {
-			if (std::filesystem::is_regular_file(file) && file.path().extension() == ext) {
-				auto filePath = file.path();
-				if (filePath != basecfg) {
+			if (is_regular_file(file) && file.path().extension() == ext) {
+				if (const auto& filePath = file.path(); filePath != basecfg) {
 					readToml(filePath);
 				}
 			}
@@ -65,8 +61,6 @@ void Loki::PoiseMod::ReadPoiseTOML()
 	}
 
 	logger::info("Success");
-
-	return;
 }
 
 void Loki::PoiseMod::ReadStaggerList()
@@ -112,12 +106,12 @@ void Loki::PoiseMod::ReadStaggerList()
 
 Loki::PoiseMod::PoiseMod()
 {
-	Loki::PoiseMod::ReadPoiseTOML();
-	Loki::PoiseMod::ReadStaggerList();
+	ReadPoiseTOML();
+	ReadStaggerList();
 
 	CSimpleIniA ini;
 	ini.SetUnicode();
-	auto filename = L"Data/SKSE/Plugins/loki_POISE.ini";
+	const auto filename = L"Data/SKSE/Plugins/loki_POISE.ini";
 	[[maybe_unused]] SI_Error rc = ini.LoadFile(filename);
 
 	this->ConsoleInfoDump = ini.GetBoolValue("DEBUG", "bConsoleInfoDump", false);
@@ -131,65 +125,65 @@ Loki::PoiseMod::PoiseMod()
 	this->ForceThirdPerson = ini.GetBoolValue("MAIN", "bForceFirstPersonStagger", false);
 	this->SpellPoise = ini.GetBoolValue("MAIN", "bNPCSpellPoise", false);
 	this->PlayerSpellPoise = ini.GetBoolValue("MAIN", "bPlayerSpellPoise", false);
-	this->StaggerDelay = (uint32_t)ini.GetLongValue("MAIN", "fStaggerDelay", 3);
+	this->StaggerDelay = static_cast<uint32_t>(ini.GetLongValue("MAIN", "fStaggerDelay", 3));
 
-	this->poiseBreakThreshhold0 = (float)ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold0", -1.00f);
-	this->poiseBreakThreshhold1 = (float)ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold1", -1.00f);
-	this->poiseBreakThreshhold2 = (float)ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold2", -1.00f);
+	this->poiseBreakThreshhold0 = static_cast<float>(ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold0", -1.00f));
+	this->poiseBreakThreshhold1 = static_cast<float>(ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold1", -1.00f));
+	this->poiseBreakThreshhold2 = static_cast<float>(ini.GetDoubleValue("MAIN", "fPoiseBreakThreshhold2", -1.00f));
 
-	// this->HyperArmourMult = (float)ini.GetDoubleValue("HYPERARMOR", "fHyperArmourMult", -1.00f);
-	this->NPCHyperArmourMult = (float)ini.GetDoubleValue("HYPERARMOR", "fNPCHyperArmourMult", -1.00f);
-	//this->SpellHyperArmourMult = (float)ini.GetDoubleValue("HYPERARMOR", "fSpellHyperArmourMult", -1.00f);
-	this->NPCSpellHyperArmourMult = (float)ini.GetDoubleValue("HYPERARMOR", "fNPCSpellHyperArmourMult", -1.00f);
+	this->HyperArmourMult = static_cast<float>(ini.GetDoubleValue("HYPERARMOR", "fHyperArmourMult", -1.00f));
+	this->NPCHyperArmourMult = static_cast<float>(ini.GetDoubleValue("HYPERARMOR", "fNPCHyperArmourMult", -1.00f));
+	this->SpellHyperArmourMult = static_cast<float>(ini.GetDoubleValue("HYPERARMOR", "fSpellHyperArmourMult", -1.00f));
+	this->NPCSpellHyperArmourMult = static_cast<float>(ini.GetDoubleValue("HYPERARMOR", "fNPCSpellHyperArmourMult", -1.00f));
 
-	this->PowerAttackMult = (float)ini.GetDoubleValue("MECHANICS", "fPowerAttackMult", -1.00f);
-	this->BlockedMult = (float)ini.GetDoubleValue("MECHANICS", "fBlockedMult", -1.00f);
-	this->BashMult = (float)ini.GetDoubleValue("MECHANICS", "fBashMult", -1.00f);
-	this->BashParryMult = (float)ini.GetDoubleValue("MECHANICS", "fBashParryMult", -1.00f);
+	this->PowerAttackMult = static_cast<float>(ini.GetDoubleValue("MECHANICS", "fPowerAttackMult", -1.00f));
+	this->BlockedMult = static_cast<float>(ini.GetDoubleValue("MECHANICS", "fBlockedMult", -1.00f));
+	this->BashMult = static_cast<float>(ini.GetDoubleValue("MECHANICS", "fBashMult", -1.00f));
+	this->BashParryMult = static_cast<float>(ini.GetDoubleValue("MECHANICS", "fBashParryMult", -1.00f));
 
 	this->ScalePHealthGlobal = ini.GetBoolValue("GLOBALMULT", "bScalePHealthGlobal", false);
 	this->ScalePDmgGlobal = ini.GetBoolValue("GLOBALMULT", "bScalePDmgGlobal", false);
-	this->GlobalPHealthMult = (float)ini.GetDoubleValue("GLOBALMULT", "fGlobalPHealthMult", -1.00f);
-	this->GlobalPDmgMult = (float)ini.GetDoubleValue("GLOBALMULT", "fGlobalPDmgMult", -1.00f);
-	this->GlobalPlayerPHealthMult = (float)ini.GetBoolValue("GLOBALMULT", "fGlobalPlayerPHealthMult", false);
-	this->GlobalPlayerPDmgMult = (float)ini.GetBoolValue("GLOBALMULT", "fGlobalPlayerPDmgMult", false);
+	this->GlobalPHealthMult = static_cast<float>(ini.GetDoubleValue("GLOBALMULT", "fGlobalPHealthMult", -1.00f));
+	this->GlobalPDmgMult = static_cast<float>(ini.GetDoubleValue("GLOBALMULT", "fGlobalPDmgMult", -1.00f));
+	this->GlobalPlayerPHealthMult = static_cast<float>(ini.GetBoolValue("GLOBALMULT", "fGlobalPlayerPHealthMult", false));
+	this->GlobalPlayerPDmgMult = static_cast<float>(ini.GetBoolValue("GLOBALMULT", "fGlobalPlayerPDmgMult", false));
 
-	this->BowMult = (float)ini.GetDoubleValue("WEAPON", "fBowMult", -1.00f);
-	this->CrossbowMult = (float)ini.GetDoubleValue("WEAPON", "fCrossbowMult", -1.00f);
-	this->Hand2Hand = (float)ini.GetDoubleValue("WEAPON", "fHand2HandMult", -1.00f);
-	this->OneHandAxe = (float)ini.GetDoubleValue("WEAPON", "fOneHandAxeMult", -1.00f);
-	this->OneHandDagger = (float)ini.GetDoubleValue("WEAPON", "fOneHandDaggerMult", -1.00f);
-	this->OneHandMace = (float)ini.GetDoubleValue("WEAPON", "fOneHandMaceMult", -1.00f);
-	this->OneHandSword = (float)ini.GetDoubleValue("WEAPON", "fOneHandSwordMult", -1.00f);
-	this->TwoHandAxe = (float)ini.GetDoubleValue("WEAPON", "fTwoHandAxeMult", -1.00f);
-	this->TwoHandSword = (float)ini.GetDoubleValue("WEAPON", "fTwoHandSwordMult", -1.00f);
+	this->BowMult = static_cast<float>(ini.GetDoubleValue("WEAPON", "fBowMult", -1.00f));
+	this->CrossbowMult = static_cast<float>(ini.GetDoubleValue("WEAPON", "fCrossbowMult", -1.00f));
+	this->Hand2Hand = static_cast<float>(ini.GetDoubleValue("WEAPON", "fHand2HandMult", -1.00f));
+	this->OneHandAxe = static_cast<float>(ini.GetDoubleValue("WEAPON", "fOneHandAxeMult", -1.00f));
+	this->OneHandDagger = static_cast<float>(ini.GetDoubleValue("WEAPON", "fOneHandDaggerMult", -1.00f));
+	this->OneHandMace = static_cast<float>(ini.GetDoubleValue("WEAPON", "fOneHandMaceMult", -1.00f));
+	this->OneHandSword = static_cast<float>(ini.GetDoubleValue("WEAPON", "fOneHandSwordMult", -1.00f));
+	this->TwoHandAxe = static_cast<float>(ini.GetDoubleValue("WEAPON", "fTwoHandAxeMult", -1.00f));
+	this->TwoHandSword = static_cast<float>(ini.GetDoubleValue("WEAPON", "fTwoHandSwordMult", -1.00f));
 
-	this->RapierMult = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fRapierMult", -1.00f);
-	this->PikeMult = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fPikeMult", -1.00f);
-	this->SpearMult = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fSpearMult", -1.00f);
-	this->HalberdMult = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fHalberdMult", -1.00f);
-	this->QtrStaffMult = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fQtrStaffMult", -1.00f);
-	this->CaestusMult = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fCaestusMult", -1.00f);
-	this->ClawMult = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fClawMult", -1.00f);
-	this->WhipMult = (float)ini.GetDoubleValue("ANIMATED_ARMOURY", "fWhipMult", -1.00f);
+	this->RapierMult = static_cast<float>(ini.GetDoubleValue("ANIMATED_ARMOURY", "fRapierMult", -1.00f));
+	this->PikeMult = static_cast<float>(ini.GetDoubleValue("ANIMATED_ARMOURY", "fPikeMult", -1.00f));
+	this->SpearMult = static_cast<float>(ini.GetDoubleValue("ANIMATED_ARMOURY", "fSpearMult", -1.00f));
+	this->HalberdMult = static_cast<float>(ini.GetDoubleValue("ANIMATED_ARMOURY", "fHalberdMult", -1.00f));
+	this->QtrStaffMult = static_cast<float>(ini.GetDoubleValue("ANIMATED_ARMOURY", "fQtrStaffMult", -1.00f));
+	this->CaestusMult = static_cast<float>(ini.GetDoubleValue("ANIMATED_ARMOURY", "fCaestusMult", -1.00f));
+	this->ClawMult = static_cast<float>(ini.GetDoubleValue("ANIMATED_ARMOURY", "fClawMult", -1.00f));
+	this->WhipMult = static_cast<float>(ini.GetDoubleValue("ANIMATED_ARMOURY", "fWhipMult", -1.00f));
 
-	this->TwinbladeMult = (float)ini.GetDoubleValue("CUSTOM_WEAPONS", "fTwinbladeMult", -1.00f);
+	this->TwinbladeMult = static_cast<float>(ini.GetDoubleValue("CUSTOM_WEAPONS", "fTwinbladeMult", -1.00f));
 
 	this->UseOldFormula = ini.GetBoolValue("FORMULAE", "bUseOldFormula", false);
-	this->PhysicalDmgWeight = (float)ini.GetDoubleValue("FORMULAE", "fPhysicalDmgWeight", -1.00f);
-	this->PhysicalDmgWeightPlayer = (float)ini.GetDoubleValue("FORMULAE", "fPhysicalDmgWeightPlayer", -1.00f);
-	this->MaxPoiseLevelWeight = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseLevelWeight", -1.00f);
-	this->MaxPoiseLevelWeightPlayer = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseLevelWeightPlayer", -1.00f);
-	this->ArmorLogarithmSlope = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseArmorRatingSlope", -1.00f);
-	this->ArmorLogarithmSlopePlayer = (float)ini.GetDoubleValue("FORMULAE", "fMaxPoiseArmorRatingSlopePlayer", -1.00f);
-	this->HyperArmorLogSlope = (float)ini.GetDoubleValue("FORMULAE", "fHyperArmorSlopePlayer", -1.00f);
-	this->SpellHyperLogSlope = (float)ini.GetDoubleValue("FORMULAE", "fSpellHyperArmorSlopePlayer", -1.00f);
-	this->CreatureHPMultiplier = (float)ini.GetDoubleValue("FORMULAE", "fCreatureTOMLMaxPoiseMult", -1.00f);
-	this->CreatureDMGMultiplier = (float)ini.GetDoubleValue("FORMULAE", "fCreatureTOMLPoiseDmgMult", -1.00f);
-	this->SpellPoiseEffectWeight = (float)ini.GetDoubleValue("FORMULAE", "fSpellPoiseEffectWeight", -1.00f);
-	this->SpellPoiseEffectWeightP = (float)ini.GetDoubleValue("FORMULAE", "fSpellPoiseEffectWeightPlayer", -1.00f);
-	this->SpellPoiseConcMult = (float)ini.GetDoubleValue("FORMULAE", "fSpellPoiseConcentrationMult", -1.00f);
-	this->WardPowerWeight = (float)ini.GetDoubleValue("FORMULAE", "fWardPowerWeight", -1.00f);
+	this->PhysicalDmgWeight = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fPhysicalDmgWeight", -1.00f));
+	this->PhysicalDmgWeightPlayer = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fPhysicalDmgWeightPlayer", -1.00f));
+	this->MaxPoiseLevelWeight = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fMaxPoiseLevelWeight", -1.00f));
+	this->MaxPoiseLevelWeightPlayer = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fMaxPoiseLevelWeightPlayer", -1.00f));
+	this->ArmorLogarithmSlope = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fMaxPoiseArmorRatingSlope", -1.00f));
+	this->ArmorLogarithmSlopePlayer = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fMaxPoiseArmorRatingSlopePlayer", -1.00f));
+	this->HyperArmorLogSlope = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fHyperArmorSlopePlayer", -1.00f));
+	this->SpellHyperLogSlope = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fSpellHyperArmorSlopePlayer", -1.00f));
+	this->CreatureHPMultiplier = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fCreatureTOMLMaxPoiseMult", -1.00f));
+	this->CreatureDMGMultiplier = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fCreatureTOMLPoiseDmgMult", -1.00f));
+	this->SpellPoiseEffectWeight = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fSpellPoiseEffectWeight", -1.00f));
+	this->SpellPoiseEffectWeightP = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fSpellPoiseEffectWeightPlayer", -1.00f));
+	this->SpellPoiseConcMult = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fSpellPoiseConcentrationMult", -1.00f));
+	this->WardPowerWeight = static_cast<float>(ini.GetDoubleValue("FORMULAE", "fWardPowerWeight", -1.00f));
 
 
 	if (auto dataHandle = RE::TESDataHandler::GetSingleton(); dataHandle) {
@@ -199,7 +193,7 @@ Loki::PoiseMod::PoiseMod()
 		HardcodeFus2 = dataHandle->LookupForm<RE::EffectSetting>(0x13E08, "Skyrim.esm");
 		HardcodeDisarm1 = dataHandle->LookupForm<RE::EffectSetting>(0x8BB26, "Skyrim.esm");
 		HardcodeDisarm2 = dataHandle->LookupForm<RE::EffectSetting>(0x0CD08, "Skyrim.esm");
-		//Conner: only the 3rd word of shouts get handled correctly by stagger processing, so we have to hardcode the first few words of the stagger shouts.
+		//TODO Conner: only the 3rd word of shouts get handled correctly by stagger processing, so we have to hardcode the first few words of the stagger shouts.
 
 		//PoiseDmgNerf     = dataHandle->LookupForm<RE::BGSKeyword>(0x433C, "loki_POISE.esp");
 		//PoiseDmgBuff     = dataHandle->LookupForm<RE::BGSKeyword>(0x433B, "loki_POISE.esp");
@@ -218,13 +212,13 @@ Loki::PoiseMod::PoiseMod()
 
 Loki::PoiseMod* Loki::PoiseMod::GetSingleton()
 {
-	static Loki::PoiseMod* singleton = new Loki::PoiseMod();
-	return singleton;
+	static PoiseMod singleton;
+	return &singleton;
 }
 
 void Loki::PoiseMod::InstallStaggerHook()
 {
-	REL::Relocation<std::uintptr_t> StaggerHook{ RELOCATION_ID(37673, 38627), OFFSET(0x3C0, 0x4A8) };
+	const REL::Relocation StaggerHook{ RELOCATION_ID(37673, 38627), OFFSET(0x3C0, 0x4A8) };
 
 	auto& trampoline = SKSE::GetTrampoline();
 	_ProcessHitEvent = trampoline.write_call<5>(StaggerHook.address(), ProcessHitEvent);
@@ -339,7 +333,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 
 		auto ptr = Loki::PoiseMod::GetSingleton();
 
-		auto nowTime = uint32_t(std::time(nullptr) % UINT32_MAX);
+		auto nowTime = static_cast<uint32_t>(std::time(nullptr) % UINT32_MAX);
 		auto lastStaggerTime = actor->GetActorRuntimeData().pad1EC;
 		if (lastStaggerTime > nowTime) {
 			actor->GetActorRuntimeData().pad1EC = nowTime;
@@ -497,7 +491,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 					float fLogarithm = ((BlockMult - 20) / 50 + 1);
 					double PlayerBlockMult = (0.7 - log10(fLogarithm));
 					PlayerBlockMult = (PlayerBlockMult >= 0.0) ? PlayerBlockMult : 0.0;
-					a_result *= (float)PlayerBlockMult;
+					a_result *= static_cast<float>(PlayerBlockMult);
 				} else {
 					a_result *= 0.7f;
 				}
@@ -580,7 +574,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 			caster->CastSpellImmediate(ptr->poiseDelaySpell, false, actor, 1.0f, false, 0.0f, 0);
 		}
 
-		//Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
+		//TODO Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
 
 		if (Spell->GetCastingType() == RE::MagicSystem::CastingType::kConcentration) {
 			//RE::ConsoleLog::GetSingleton()->Print("magic event is from concentration spell");
@@ -743,7 +737,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 				}
 				auto ptr = Loki::PoiseMod::GetSingleton();
 
-				auto nowTime = uint32_t(std::time(nullptr) % UINT32_MAX);
+				auto nowTime = static_cast<uint32_t>(std::time(nullptr) % UINT32_MAX);
 				auto lastStaggerTime = actor->GetActorRuntimeData().pad1EC;
 				if (lastStaggerTime > nowTime) {
 					actor->GetActorRuntimeData().pad1EC = nowTime;
@@ -852,7 +846,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 							float fLogarithm = ((BlockMult - 20) / 50 + 1);
 							double PlayerBlockMult = (0.7 - log10(fLogarithm));
 							PlayerBlockMult = (PlayerBlockMult >= 0.0) ? PlayerBlockMult : 0.0;
-							a_result *= (float)PlayerBlockMult;
+							a_result *= static_cast<float>(PlayerBlockMult);
 						} else {
 							a_result *= 0.7f;
 						}
@@ -933,7 +927,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 					caster->CastSpellImmediate(ptr->poiseDelaySpell, false, actor, 1.0f, false, 0.0f, 0);
 				}
 
-				//Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
+				//TODO Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
 				static RE::BSFixedString str = nullptr;
 				auto cam = RE::PlayerCamera::GetSingleton();
 
@@ -1142,12 +1136,12 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 						a_result = 8.00f;  //if nullcheck fail just set it to 10 meh.
 						break;
 					} else {
-						a_result = (aggressor->GetEquippedWeight() / 2);  //conner: for npc we use 1/2 of equip weight. Clamped to 50.
+						a_result = (aggressor->GetEquippedWeight() / 2);  //TODO Conner: for npc we use 1/2 of equip weight. Clamped to 50.
 						if (a_result > 50.0f) {
 							a_result = 50.0f;
 						}
 						if (aggressor->IsPlayerRef()) {
-							a_result = (aggressor->GetActorOwner()->GetActorValue(RE::ActorValue::kUnarmedDamage) / 2);	//conner: we calculate player poise dmg as half of unarmed damage. Clamp to 25 max.
+							a_result = (aggressor->GetActorOwner()->GetActorValue(RE::ActorValue::kUnarmedDamage) / 2);	 //TODO Conner: we calculate player poise dmg as half of unarmed damage. Clamp to 25 max.
 							if (a_result > 25.0f) {
 								a_result = 25.0f;
 							}
@@ -1256,7 +1250,7 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 		}
 	}
 
-    const auto zeffect = aggressor->GetMagicTarget()->GetActiveEffectList();
+	const auto zeffect = aggressor->GetMagicTarget()->GetActiveEffectList();
 	if (zeffect) {
 		for (const auto& aeffect : *zeffect) {
 			if (!aeffect) {
@@ -1267,7 +1261,7 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 			}
 			if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzPoiseDamageFlat")) {
 				auto buffFlat = (aeffect->magnitude);
-				a_result += buffFlat;  //conner: additive instead of multiplicative buff.
+				a_result += buffFlat;  //TODO Conner: additive instead of multiplicative buff.
 			}
 			if ((!aeffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && aeffect->GetBaseObject()->HasKeywordString("zzzPoiseDamageIncrease")) {
 				auto buffPercent = (aeffect->magnitude / 100.00f);	// convert to percentage
@@ -1321,7 +1315,7 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 				float fLogarithm = ((BlockMult - 20) / 50 + 1);
 				double PlayerBlockMult = (0.7 - log10(fLogarithm));
 				PlayerBlockMult = (PlayerBlockMult >= 0.0) ? PlayerBlockMult : 0.0;
-				a_result *= (float)PlayerBlockMult;
+				a_result *= static_cast<float>(PlayerBlockMult);
 			} else {
 				a_result *= 0.7f;
 			}
@@ -1333,14 +1327,14 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 	if (atk) {
 		if (a_actor->IsPlayerRef()) {
 			float LightArmorMult = (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kLightArmor));
-			float Slope = ptr->HyperArmorLogSlope; //default = 50
+			float Slope = ptr->HyperArmorLogSlope;	//default = 50
 			if (LightArmorMult >= 20.0f) {
 				float fLogarithm = ((LightArmorMult - 20) / Slope + 1);
 				double PlayerHyperArmourMult = (0.8 - log2(fLogarithm) * 0.4);
 				//RE::ConsoleLog::GetSingleton()->Print("logarithm value: %f", fLogarithm);
 				//RE::ConsoleLog::GetSingleton()->Print("Player hyper armor LOG Calculation: %f", PlayerHyperArmourMult);
 				PlayerHyperArmourMult = PlayerHyperArmourMult >= 0.0 ? PlayerHyperArmourMult : 0.0;	 //if value is negative, player is at a dumb level so just give them full damage mitigation.
-				a_result *= (float)PlayerHyperArmourMult;
+				a_result *= static_cast<float>(PlayerHyperArmourMult);
 				//RE::ConsoleLog::GetSingleton()->Print("Player hyper armor multipler: %f", (float)PlayerHyperArmourMult);
 				//RE::ConsoleLog::GetSingleton()->Print("Damage after calculation of hyperarmor: %f", a_result);
 				//logger::info("player hyperarmor scaled to light armor");
@@ -1365,7 +1359,7 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 				//RE::ConsoleLog::GetSingleton()->Print("spell logarithm value: %f", fLogarithm);
 				//RE::ConsoleLog::GetSingleton()->Print("Player spell HyperArmor LOG Calculation: %f", PlayerHyperArmourMult);
 				PlayerHyperArmourMult = PlayerHyperArmourMult >= 0.0 ? PlayerHyperArmourMult : PlayerHyperArmourMult = 0.0;	 //if value is negative, player is at a dumb level so just give them full damage mitigation.
-				a_result *= (float)PlayerHyperArmourMult;
+				a_result *= static_cast<float>(PlayerHyperArmourMult);
 				//RE::ConsoleLog::GetSingleton()->Print("Player spell hyperarmor multipler: %f", (float)PlayerHyperArmourMult);
 				//RE::ConsoleLog::GetSingleton()->Print("Damage after calculation of hyperarmor: %f", a_result);
 				//logger::info("player SPELL hyperarmor scaled to light armor");
@@ -1461,7 +1455,7 @@ float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor)
 			}
 			if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("zzzMaxPoiseHealthFlat")) {
 				auto buffFlat = (veffect->magnitude);
-				a_result += buffFlat;  //conner: additive instead of multiplicative buff.
+				a_result += buffFlat;  //TODO Conner: additive instead of multiplicative buff.
 									   //RE::ConsoleLog::GetSingleton()->Print("flat buff = %f", buffFlat);
 			}
 			if ((!veffect->flags.all(RE::ActiveEffect::Flag::kInactive)) && veffect->GetBaseObject()->HasKeywordString("MagicArmorSpell")) {
@@ -1498,7 +1492,7 @@ bool Loki::PoiseMod::IsActorKnockdown(RE::Character* a_this, std::int64_t a_unk)
 		return _IsActorKnockdown(a_this, a_unk);
 	}
 
-    static RE::BSFixedString str = nullptr;
+	static RE::BSFixedString str = nullptr;
 
 	if ((a_this->IsPlayerRef() && ptr->PlayerRagdollReplacer) || (!a_this->IsPlayerRef() && ptr->NPCRagdollReplacer)) {
 		float knockdownDirection = 0.00f;
@@ -1528,7 +1522,7 @@ float Loki::PoiseMod::GetSubmergedLevel(RE::Actor* a_actor, float a_zPos, RE::TE
 	}
 
 	if (!a_actor->GetMagicTarget()->HasMagicEffect(ptr->poiseDelayEffect)) {
-		auto a_result = (int)CalculateMaxPoise(a_actor);
+		auto a_result = static_cast<int>(CalculateMaxPoise(a_actor));
 		if (a_result > 100000) {
 			//logger::info("GetSubmergedLevel strange poise value {}", a_result);
 			a_result = 0;
@@ -1657,10 +1651,10 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
 		threshhold2 = 10;
 	}
 
-	//Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
+	//TODO Conner: for the stagger function and the modification of actor->pad0EC, we should move the code block to a new function, and lock it probably. Do later. I added 3DLoaded check i guess.
 	bool isBlk = false;
-    static RE::BSFixedString str = nullptr;
-    a_actor->GetGraphVariableBool(ptr->isBlocking, isBlk);
+	static RE::BSFixedString str = nullptr;
+	a_actor->GetGraphVariableBool(ptr->isBlocking, isBlk);
 
 	auto cam = RE::PlayerCamera::GetSingleton();
 
@@ -1679,7 +1673,7 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
 			a_actor->SetGraphVariableFloat(ptr->staggerMagn, 1.00f);
 			a_actor->NotifyAnimationGraph(ptr->ae_Stagger);	 // play animation
 		} else {
-			if (a_hitData.flags == HitFlag::kExplosion || a_hitData.aggressor.get()->HasKeyword(ptr->kDragon) || a_hitData.aggressor.get()->HasKeyword(ptr->kGiant) || a_hitData.aggressor.get()->HasKeyword(ptr->kDwarven) || a_hitData.aggressor.get()->HasKeyword(ptr->kTroll) || a_hitData.aggressor.get()->GetRace()->formID == kLurker) {	// check if explosion, dragon, giant attack or dwarven
+			if (a_hitData.flags == HitFlag::kExplosion || a_hitData.aggressor.get()->HasKeyword(ptr->kDragon) || a_hitData.aggressor.get()->HasKeyword(ptr->kGiant) || a_hitData.aggressor.get()->HasKeyword(ptr->kDwarven) || a_hitData.aggressor.get()->HasKeyword(ptr->kTroll) || a_hitData.aggressor.get()->GetRace()->formID == kLurker) {	 // check if explosion, dragon, giant attack or dwarven
 				if (stagDir > 0.25f && stagDir < 0.75f) {
 					str = ptr->poiseLargestFwd;
 				} else {

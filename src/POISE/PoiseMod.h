@@ -1,10 +1,5 @@
 #pragma once
 
-#include <shared_mutex>
-#include <unordered_set>
-#include "Loki_PluginTools.h"
-#include "TrueHUDControl.h"
-
 namespace Loki {
     class PoiseMod {
 
@@ -41,20 +36,20 @@ namespace Loki {
         const RE::BSFixedString poiseLargestBwd = "poise_largest_start";
         const RE::BSFixedString poiseLargestFwd = "poise_largest_start_fwd";
 
-        RE::SpellItem* poiseDelaySpell = NULL;
-        RE::EffectSetting* poiseDelayEffect = NULL;
-        RE::BGSKeyword* kCreature = NULL;
-        RE::BGSKeyword* kDragon = NULL;
-        RE::BGSKeyword* kGiant = NULL;
-        RE::BGSKeyword* kGhost = NULL;
-        RE::BGSKeyword* kDwarven = NULL;
-        RE::BGSKeyword* kTroll = NULL;
-        RE::BGSKeyword* WeapMaterialSilver = NULL;
+        RE::SpellItem* poiseDelaySpell = nullptr;
+        RE::EffectSetting* poiseDelayEffect = nullptr;
+        RE::BGSKeyword* kCreature = nullptr;
+        RE::BGSKeyword* kDragon = nullptr;
+        RE::BGSKeyword* kGiant = nullptr;
+        RE::BGSKeyword* kGhost = nullptr;
+        RE::BGSKeyword* kDwarven = nullptr;
+        RE::BGSKeyword* kTroll = nullptr;
+        RE::BGSKeyword* WeapMaterialSilver = nullptr;
 
-        RE::EffectSetting* HardcodeFus1 = NULL;
-		RE::EffectSetting* HardcodeFus2 = NULL;
-		RE::EffectSetting* HardcodeDisarm1 = NULL;
-		RE::EffectSetting* HardcodeDisarm2 = NULL;
+        RE::EffectSetting* HardcodeFus1 = nullptr;
+		RE::EffectSetting* HardcodeFus2 = nullptr;
+		RE::EffectSetting* HardcodeDisarm1 = nullptr;
+		RE::EffectSetting* HardcodeDisarm2 = nullptr;
         //hardcode fus and disarm because the first two words of a shout will not get processed by whitelist for whatever reason
  
  
@@ -144,9 +139,9 @@ namespace Loki {
 		struct MagicExplosionHitHook
 		{
 			// SE version patch
-			struct Patch : public Xbyak::CodeGenerator
+			struct Patch : Xbyak::CodeGenerator
 			{
-				Patch(size_t a_retAddr)
+				explicit Patch(const size_t a_retAddr)
 				{
 					Xbyak::Label callLbl;
 					Xbyak::Label retLbl;
@@ -173,7 +168,7 @@ namespace Loki {
 					jmp(ptr[rip + retNullLbl]);
 
 					L(callLbl);
-					dq((size_t)&thunk);
+					dq(reinterpret_cast<size_t>(&thunk));
 
 					L(retLbl);
 					dq(a_retAddr);
@@ -214,22 +209,20 @@ namespace Loki {
 #else
 			stl::write_thunk_call<MagicProjectileHitHook>(REL::ID(43015).address() + 0x216);
 			auto& trampoline = SKSE::GetTrampoline();
-			REL::Relocation<uintptr_t> hook(REL::ID(33686), 0x73);
+			const REL::Relocation hook(REL::ID(33686), 0x73);
 			MagicExplosionHitHook::Patch patch(hook.address() + 5);
 			SKSE::AllocTrampoline(14 + patch.getSize());
-			uintptr_t code = (uintptr_t)trampoline.allocate(patch);
+			const uintptr_t code = reinterpret_cast<uintptr_t>(trampoline.allocate(patch));
 			trampoline.write_branch<5>(hook.address(), code);
 #endif
 		}
-
+    	PoiseMagicDamage(const PoiseMagicDamage&) = delete;
+    	PoiseMagicDamage(PoiseMagicDamage&&) = delete;
+    	auto operator=(const PoiseMagicDamage&) -> PoiseMagicDamage& = delete;
+    	auto operator=(PoiseMagicDamage&&) -> PoiseMagicDamage& = delete;
 
 	protected:
 		PoiseMagicDamage() = default;
-		PoiseMagicDamage(const PoiseMagicDamage&) = delete;
-		PoiseMagicDamage(PoiseMagicDamage&&) = delete;
 		virtual ~PoiseMagicDamage() = default;
-
-		auto operator=(const PoiseMagicDamage&) -> PoiseMagicDamage& = delete;
-		auto operator=(PoiseMagicDamage&&) -> PoiseMagicDamage& = delete;
 	};
 };

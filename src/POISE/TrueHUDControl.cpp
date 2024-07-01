@@ -1,28 +1,27 @@
 #include "TrueHUDControl.h"
-#include "ActorCache.h"
+#include "PoiseMod.h"
 
 Loki::TrueHUDControl::TrueHUDControl() {
     CSimpleIniA ini;
     ini.SetUnicode();
-    auto filename = L"Data/SKSE/Plugins/loki_POISE.ini";
+	const auto filename = L"Data/SKSE/Plugins/loki_POISE.ini";
     [[maybe_unused]] SI_Error rc = ini.LoadFile(filename);
 
     this->TrueHUDBars = ini.GetBoolValue("MAIN", "bTrueHUDBars", false);
 }
 
 Loki::TrueHUDControl* Loki::TrueHUDControl::GetSingleton() {
-    static Loki::TrueHUDControl* singleton = new Loki::TrueHUDControl();
+    static auto singleton = new TrueHUDControl();
     return singleton;
 }
 
 float Loki::TrueHUDControl::GetMaxSpecial([[maybe_unused]] RE::Actor* a_actor) {
-
-    auto ptr = Loki::PoiseMod::GetSingleton();
-	float a_result = ptr->CalculateMaxPoise(a_actor);
+	const auto ptr = PoiseMod::GetSingleton();
+	const float a_result = ptr->CalculateMaxPoise(a_actor);
     return a_result;
 
 }
 
 float Loki::TrueHUDControl::GetCurrentSpecial([[maybe_unused]] RE::Actor* a_actor) {
-    return (float)a_actor->GetActorRuntimeData().pad0EC;
+    return static_cast<float>(a_actor->GetActorRuntimeData().pad0EC);
 }
