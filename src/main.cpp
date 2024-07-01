@@ -134,7 +134,7 @@ namespace PoiseMod {  // Papyrus Functions
 			float level = a_actor->GetLevel();
 			float levelweight = ptr->MaxPoiseLevelWeight;
 			float levelweightplayer = ptr->MaxPoiseLevelWeightPlayer;
-			float ArmorRating = a_actor->GetActorValue(RE::ActorValue::kDamageResist);
+			float ArmorRating = a_actor->GetActorOwner()->GetActorValue(RE::ActorValue::kDamageResist);
 			float ArmorWeight = ptr->ArmorLogarithmSlope;
 			float ArmorWeightPlayer = ptr->ArmorLogarithmSlopePlayer;
 			float RealWeight = ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_actor);

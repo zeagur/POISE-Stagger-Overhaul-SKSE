@@ -41,7 +41,7 @@ void Loki::PoiseMod::ReadPoiseTOML()
 			ss << "Error parsing file \'" << *e.source().path << "\':\n"
 			   << '\t' << e.description() << '\n'
 			   << "\t\t(" << e.source().begin << ')';
-			logger::error(ss.str());
+			logger::error("{}", ss.str());
 		} catch (const std::exception& e) {
 			logger::error("{}", e.what());
 		} catch (...) {
@@ -417,8 +417,8 @@ void Loki::PoiseMagicDamage::PoiseCalculateMagic(RE::MagicCaster* a_magicCaster,
 			return;
 		}
 
-		auto avHealth = actor->GetActorValue(RE::ActorValue::kHealth);
-		auto avParalysis = actor->GetActorValue(RE::ActorValue::kParalysis);
+		auto avHealth = actor->GetActorOwner()->GetActorValue(RE::ActorValue::kHealth);
+		auto avParalysis = actor->GetActorOwner()->GetActorValue(RE::ActorValue::kParalysis);
 		if (avHealth <= 0.05f || actor->IsInKillMove() || avParalysis) {
 			//logger::info("target is in state ineligible for poise dmg");
 			return;
@@ -734,7 +734,7 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 
 	} else {
 		auto MAttacker = a_hitData->caster->GetCasterAsActor();
-		if (MAttacker == NULL) {
+		if (MAttacker == nullptr) {
 			return;
 		} else if (MAttacker) {
 			if (auto actor = a_target->As<RE::Actor>(); actor) {
@@ -769,8 +769,8 @@ void Loki::PoiseMagicDamage::PoiseCalculateExplosion(ExplosionHitData* a_hitData
 					return;
 				}
 
-				auto avHealth = actor->GetActorValue(RE::ActorValue::kHealth);
-				auto avParalysis = actor->GetActorValue(RE::ActorValue::kParalysis);
+				auto avHealth = actor->GetActorOwner()->GetActorValue(RE::ActorValue::kHealth);
+				auto avParalysis = actor->GetActorOwner()->GetActorValue(RE::ActorValue::kParalysis);
 				if (avHealth <= 0.05f || actor->IsInKillMove() || avParalysis) {
 					return;
 				}
@@ -1147,7 +1147,7 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 							a_result = 50.0f;
 						}
 						if (aggressor->IsPlayerRef()) {
-							a_result = (aggressor->GetActorValue(RE::ActorValue::kUnarmedDamage) / 2);	//conner: we calculate player poise dmg as half of unarmed damage. Clamp to 25 max.
+							a_result = (aggressor->GetActorOwner()->GetActorValue(RE::ActorValue::kUnarmedDamage) / 2);	//conner: we calculate player poise dmg as half of unarmed damage. Clamp to 25 max.
 							if (a_result > 25.0f) {
 								a_result = 25.0f;
 							}
@@ -1283,7 +1283,7 @@ float Loki::PoiseMod::CalculatePoiseDamage(RE::HitData& a_hitData, RE::Actor* a_
 	}
 
 	//ward buff is applied after keyword buffs but before hyperarmor and other modifiers
-	float WardPower = a_actor->GetActorValue(RE::ActorValue::kWardPower);
+	float WardPower = a_actor->GetActorOwner()->GetActorValue(RE::ActorValue::kWardPower);
 	float WardPowerMult = ptr->WardPowerWeight;
 	a_result -= (WardPower * WardPowerMult);
 	(a_result > 0.0f) ? a_result : (a_result = 0.0f);
@@ -1407,7 +1407,7 @@ float Loki::PoiseMod::CalculateMaxPoise(RE::Actor* a_actor)
 	float level = a_actor->GetLevel();
 	float levelweight = ptr->MaxPoiseLevelWeight;
 	float levelweightplayer = ptr->MaxPoiseLevelWeightPlayer;
-	float ArmorRating = a_actor->GetActorValue(RE::ActorValue::kDamageResist);
+	float ArmorRating = a_actor->GetActorOwner()->GetActorValue(RE::ActorValue::kDamageResist);
 	float ArmorWeight = ptr->ArmorLogarithmSlope;
 	float ArmorWeightPlayer = ptr->ArmorLogarithmSlopePlayer;
 	float RealWeight = ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_actor);
@@ -1488,12 +1488,12 @@ bool Loki::PoiseMod::IsActorKnockdown(RE::Character* a_this, std::int64_t a_unk)
 {
 	auto ptr = Loki::PoiseMod::GetSingleton();
 
-	auto avHealth = a_this->GetActorValue(RE::ActorValue::kHealth);
+	auto avHealth = a_this->GetActorOwner()->GetActorValue(RE::ActorValue::kHealth);
 	if (a_this->IsOnMount() || a_this->IsInMidair() || avHealth <= 0.05f) {
 		return _IsActorKnockdown(a_this, a_unk);
 	}
 
-	auto kGrabbed = a_this->GetActorValue(RE::ActorValue::kGrabbed);
+	auto kGrabbed = a_this->GetActorOwner()->GetActorValue(RE::ActorValue::kGrabbed);
 	if (kGrabbed == 1) {
 		return _IsActorKnockdown(a_this, a_unk);
 	}
@@ -1522,7 +1522,7 @@ float Loki::PoiseMod::GetSubmergedLevel(RE::Actor* a_actor, float a_zPos, RE::TE
 {
 	auto ptr = Loki::PoiseMod::GetSingleton();
 
-	auto avHealth = a_actor->GetActorValue(RE::ActorValue::kHealth);
+	auto avHealth = a_actor->GetActorOwner()->GetActorValue(RE::ActorValue::kHealth);
 	if (avHealth <= 0.05f || !ptr->PoiseRegenEnabled) {
 		return _GetSubmergedLevel(a_actor, a_zPos, a_cell);
 	}
@@ -1558,8 +1558,8 @@ void Loki::PoiseMod::ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData)
 	using HitFlag = RE::HitData::Flag;
 	RE::FormID kLurker = 0x14495;
 
-	auto avHealth = a_actor->GetActorValue(RE::ActorValue::kHealth);
-	auto avParalysis = a_actor->GetActorValue(RE::ActorValue::kParalysis);
+	auto avHealth = a_actor->GetActorOwner()->GetActorValue(RE::ActorValue::kHealth);
+	auto avParalysis = a_actor->GetActorOwner()->GetActorValue(RE::ActorValue::kParalysis);
 	if (avHealth <= 0.05f || a_actor->IsInKillMove() || avParalysis) {
 		return _ProcessHitEvent(a_actor, a_hitData);
 	}
