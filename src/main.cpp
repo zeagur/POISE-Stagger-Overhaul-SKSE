@@ -41,7 +41,11 @@ namespace
 				if (ptr->TrueHUDBars) {
 					if (ptr->g_trueHUD) {
 						if (ptr->g_trueHUD->RequestSpecialResourceBarsControl(SKSE::GetPluginHandle()) == TRUEHUD_API::APIResult::OK) {
-							ptr->g_trueHUD->RegisterSpecialResourceFunctions(SKSE::GetPluginHandle(), Loki::TrueHUDControl::GetCurrentSpecial, Loki::TrueHUDControl::GetMaxSpecial, true);
+							ptr->g_trueHUD->RegisterSpecialResourceFunctions(
+								SKSE::GetPluginHandle(),
+								Loki::TrueHUDControl::GetCurrentSpecial,
+								Loki::TrueHUDControl::GetMaxSpecial,
+								true);
 						}
 					}
 				}
@@ -58,7 +62,8 @@ namespace
 			}
 		case SKSE::MessagingInterface::kPostLoad:
 			{
-				Loki::TrueHUDControl::GetSingleton()->g_trueHUD = static_cast<TRUEHUD_API::IVTrueHUD3*>(TRUEHUD_API::RequestPluginAPI(TRUEHUD_API::InterfaceVersion::V3));
+				Loki::TrueHUDControl::GetSingleton()->g_trueHUD = reinterpret_cast<TRUEHUD_API::IVTrueHUD3*>(
+					TRUEHUD_API::RequestPluginAPI(TRUEHUD_API::InterfaceVersion::V3));
 				if (Loki::TrueHUDControl::GetSingleton()->g_trueHUD) {
 					logger::info("Obtained TrueHUD API -> {0:x}", (uintptr_t)Loki::TrueHUDControl::GetSingleton()->g_trueHUD);
 				} else {
@@ -103,7 +108,7 @@ namespace PoiseMod {  // Papyrus Functions
 				a_actor->GetActorRuntimeData().pad0EC = 0;
 			}
 			if (Loki::TrueHUDControl::GetSingleton()->g_trueHUD) {
-				Loki::TrueHUDControl::GetCurrentSpecial(a_actor);
+				Loki::TrueHUDControl::GetSingleton()->GetCurrentSpecial(a_actor);
 			}
         }
 
@@ -129,7 +134,7 @@ namespace PoiseMod {  // Papyrus Functions
 			float level = a_actor->GetLevel();
 			float levelweight = ptr->MaxPoiseLevelWeight;
 			float levelweightplayer = ptr->MaxPoiseLevelWeightPlayer;
-			float ArmorRating = a_actor->GetActorBase()->GetActorValue(RE::ActorValue::kDamageResist);
+			float ArmorRating = a_actor->GetActorValue(RE::ActorValue::kDamageResist);
 			float ArmorWeight = ptr->ArmorLogarithmSlope;
 			float ArmorWeightPlayer = ptr->ArmorLogarithmSlopePlayer;
 			float RealWeight = ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_actor);
