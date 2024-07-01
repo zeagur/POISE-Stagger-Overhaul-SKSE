@@ -15,7 +15,8 @@ namespace TRUEHUD_API
 	{
 		V1,
 		V2,
-		V3
+		V3,
+		V4
 	};
 
 	// Error types that may be returned by the True HUD
@@ -375,6 +376,13 @@ namespace TRUEHUD_API
 		[[nodiscard]] virtual bool HasInfoBar(RE::ActorHandle a_actorHandle, bool a_bFloatingOnly = false) const noexcept = 0;
 	};
 
+	class IVTrueHUD4 : public IVTrueHUD3
+	{
+	public:
+		// Debug drawing API functions
+		virtual void DrawCapsule(const RE::NiPoint3& a_vertexA, const RE::NiPoint3& a_vertexB, float a_radius, float a_duration = 0.f, uint32_t a_color = 0xFF0000FF, float a_thickness = 1.f) noexcept = 0;
+	};
+
 	typedef void* (*_RequestPluginAPI)(const InterfaceVersion interfaceVersion);
 
 	/// <summary>
@@ -383,9 +391,9 @@ namespace TRUEHUD_API
 	/// </summary>
 	/// <param name="a_interfaceVersion">The interface version to request</param>
 	/// <returns>The pointer to the API singleton, or nullptr if request failed</returns>
-	[[nodiscard]] inline void* RequestPluginAPI(const InterfaceVersion a_interfaceVersion = InterfaceVersion::V3)
+	[[nodiscard]] inline void* RequestPluginAPI(const InterfaceVersion a_interfaceVersion = InterfaceVersion::V4)
 	{
-		auto pluginHandle = GetModuleHandleA("TrueHUD.dll");
+		auto pluginHandle = REX::W32::GetModuleHandleA("TrueHUD.dll");
 		_RequestPluginAPI requestAPIFunction = (_RequestPluginAPI)GetProcAddress(pluginHandle, "RequestPluginAPI");
 		if (requestAPIFunction) {
 			return requestAPIFunction(a_interfaceVersion);
