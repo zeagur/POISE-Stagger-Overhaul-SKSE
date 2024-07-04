@@ -21,6 +21,7 @@
 #include "POISE/TrueHUDAPI.h"
 #include "POISE/TrueHUDControl.h"
 #include "ActorCache.h"
+#include "POISE/PoiseData.h"
 
 
 #define TRUEHUD_API_COMMONLIB

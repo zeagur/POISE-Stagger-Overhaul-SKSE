@@ -124,7 +124,7 @@ namespace PoiseMod {  // Papyrus Functions
 			a_result = (RealWeight + (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
 		}
 
-		if (a_actor->GetName() && a_actor->GetRace()->HasKeywordString("ActorTypeCreature") || a_actor->GetRace()->HasKeywordString("ActorTypeDwarven")) {
+		if (a_actor && (a_actor->GetRace()->HasKeywordString("ActorTypeCreature") || a_actor->GetRace()->HasKeywordString("ActorTypeDwarven"))) {
 			for (const auto [fst, snd] : Loki::PoiseMod::poiseRaceMap) {
 				if (a_actor->GetName()) {
 					const RE::TESRace* a_actorRace = a_actor->GetRace();
@@ -196,6 +196,8 @@ namespace PoiseMod {  // Papyrus Functions
         a_vm->RegisterFunction("GetPoise", "Loki_PoiseMod", GetPoise, false);
         a_vm->RegisterFunction("SetPoise", "Loki_PoiseMod", SetPoise, false);
 
+    	logger::info("Registered Poise Functionality to Papyrus interface");
+
         return true;
 
     }
@@ -213,14 +215,17 @@ SKSEPluginLoad(const SKSE::LoadInterface *a_skse)
 
 	const auto messaging = SKSE::GetMessagingInterface();
 	if (!messaging->RegisterListener("SKSE", MessageHandler)) {  // add callbacks for TrueHUD
+		logger::info("Failed to Register TrueHUD SKSE interface");
 		return false;
 	}
 
 	const auto papyrus = SKSE::GetPapyrusInterface();
 	if (!papyrus->Register(PoiseMod::RegisterFuncsForSKSE)) {  // register papyrus functions
+		logger::info("Failed to Register Poise Functionality to Papyrus interface");
 		return false;
 	}
 
+	logger::info("Attempting to install Poise hook interfaces");
     Loki::PoiseMod::InstallStaggerHook();
     Loki::PoiseMod::InstallWaterHook();
     Loki::PoiseMod::InstallIsActorKnockdownHook();
@@ -228,5 +233,6 @@ SKSEPluginLoad(const SKSE::LoadInterface *a_skse)
 	Loki::PoiseMagicDamage::InstallNFACMagicHook();
 	ActorCache::RegisterEvents();
 
+	logger::info("Finished install Poise hook interfaces");
     return true;
 }

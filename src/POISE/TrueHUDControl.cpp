@@ -16,10 +16,8 @@ Loki::TrueHUDControl* Loki::TrueHUDControl::GetSingleton() {
 }
 
 float Loki::TrueHUDControl::GetMaxSpecial([[maybe_unused]] RE::Actor* a_actor) {
-	const auto ptr = PoiseMod::GetSingleton();
-	const float a_result = ptr->CalculateMaxPoise(a_actor);
+	const float a_result = PoiseMod::CalculateMaxPoise(a_actor);
     return a_result;
-
 }
 
 float Loki::TrueHUDControl::GetCurrentSpecial([[maybe_unused]] RE::Actor* a_actor) {

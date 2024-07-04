@@ -75,25 +75,33 @@ namespace Loki {
 		static inline std::unordered_set<RE::EffectSetting*> StaggerEffectList;
 
 		static bool IsTargetVaild(RE::Actor* a_this, RE::TESObjectREFR& a_target);
+    	static bool EnforceStaggerDelay(RE::Actor* actor);
+		static bool IsActionableActor(RE::Actor* actor);
+		static void HandlePoiseDamageModifiers(RE::MagicTarget* target, float& poise_damage);
+		static void HandleBlockPoiseModifiers(RE::Actor* actor, float& poise_damage);
+		static bool AdjustPoise(RE::Actor* actor, RE::EffectSetting* EffectSetting, const float& a_result, PoiseData& poise_data);
+		static bool AdjustPoise(RE::Actor* actor, float poiseDamage, RE::HitData& a_hitData, PoiseData& poise_data);
+		static bool HandleWhiteListStaggerAnimationGraph(RE::EffectSetting* EffectSetting, RE::Actor* actor, RE::Actor* const MAttacker);
+		static void GetPoiseBreakingThreshold(float maxPoise, uint32_t& threshhold0, uint32_t& threshhold1, uint32_t& threshhold2);
+		static void HandleStaggerAnimationGraph(const RE::MagicItem* spell, RE::Actor* actor, const PoiseData& poiseData, RE::Actor* const MAttacker);
 
-    private:
+	private:
         static bool IsActorKnockdown(RE::Character* a_this, std::int64_t a_unk);
         static float GetSubmergedLevel(RE::Actor* a_actor, float a_zPos, RE::TESObjectCELL* a_cell);
-        static void ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData);
+		static void ProcessHitEvent(RE::Actor* a_actor, RE::HitData& a_hitData);
 
         static inline REL::Relocation<decltype(GetSubmergedLevel)> _GetSubmergedLevel;
         static inline REL::Relocation<decltype(ProcessHitEvent)> _ProcessHitEvent;
         static inline REL::Relocation<decltype(IsActorKnockdown)> _IsActorKnockdown;
 
     protected:
-
     };
 
     class PoiseMagicDamage
 	{
 	public:
 		static PoiseMagicDamage* GetSingleton();
-		static void PoiseCalculateMagic(RE::MagicCaster* a_magicCaster, RE::Projectile* a_projectile, RE::TESObjectREFR* a_target);
+		static void PoiseCalculateMagic(const RE::MagicCaster* a_magicCaster, RE::Projectile* a_projectile, RE::TESObjectREFR* a_target);
 
 		//auto ProcessEvent(const RE::TESHitEvent* a_event, RE::BSTEventSource<RE::TESHitEvent>* a_eventSource)->RE::BSEventNotifyControl override;
 
@@ -134,7 +142,7 @@ namespace Loki {
 		};
 
 		static_assert(sizeof(ExplosionHitData) == 0x60);
-		static void PoiseCalculateExplosion(ExplosionHitData* a_hitData, RE::TESObjectREFR* a_target);
+		static void PoiseCalculateExplosion(const ExplosionHitData* a_hitData, RE::TESObjectREFR* a_target);
 
 		struct MagicExplosionHitHook
 		{
