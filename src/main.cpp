@@ -106,32 +106,32 @@ namespace PoiseMod {  // Papyrus Functions
 		float level = a_actor->GetLevel();
 		const float levelweight = ptr->MaxPoiseLevelWeight;
 		const float levelweightplayer = ptr->MaxPoiseLevelWeightPlayer;
-		float ArmorRating = a_actor->GetActorOwner()->GetActorValue(RE::ActorValue::kDamageResist);
+		float ArmorRating = a_actor->AsActorValueOwner()->GetActorValue(RE::ActorValue::kDamageResist);
 		const float ArmorWeight = ptr->ArmorLogarithmSlope;
 		const float ArmorWeightPlayer = ptr->ArmorLogarithmSlopePlayer;
 		const float RealWeight = ActorCache::GetSingleton()->GetOrCreateCachedWeight(a_actor);
 
 		level = (level < 100 ? level : 100);
 		ArmorRating = (ArmorRating > 0 ? ArmorRating : 0);
-		float a_result = (RealWeight + (levelweight * level) + (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeight + 1));
+		float a_result = (RealWeight + (levelweight * level) + (a_actor->AsActorValueOwner()->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeight + 1));
 		if (a_actor->IsPlayerRef()) {
 			level = (level < 60 ? level : 60);
-			a_result = (RealWeight + (levelweightplayer * level) + (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeightPlayer + 1));
+			a_result = (RealWeight + (levelweightplayer * level) + (a_actor->AsActorValueOwner()->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.2f)) * (1 + log10(ArmorRating / ArmorWeightPlayer + 1));
 		}
 
 		//KFC Original Recipe.
 		if (ptr->UseOldFormula) {
-			a_result = (RealWeight + (a_actor->GetActorBase()->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
+			a_result = (RealWeight + (a_actor->AsActorValueOwner()->GetBaseActorValue(RE::ActorValue::kHeavyArmor) * 0.20f));
 		}
 
 		if (a_actor && (a_actor->GetRace()->HasKeywordString("ActorTypeCreature") || a_actor->GetRace()->HasKeywordString("ActorTypeDwarven"))) {
-			for (const auto [fst, snd] : Loki::PoiseMod::poiseRaceMap) {
+			for (const auto& [fst, snd] : Loki::PoiseMod::poiseRaceMap) {
 				if (a_actor->GetName()) {
 					const RE::TESRace* a_actorRace = a_actor->GetRace();
 					const RE::TESRace* a_mapRace = fst;
 					if (a_actorRace && a_mapRace) {
 						if (a_actorRace->formID == a_mapRace->formID) {
-							float CreatureMult = ptr->CreatureHPMultiplier;
+							const float CreatureMult = ptr->CreatureHPMultiplier;
 							a_result = CreatureMult * snd[0];
 							break;
 						}
@@ -227,7 +227,7 @@ SKSEPluginLoad(const SKSE::LoadInterface *a_skse)
 
 	logger::info("Attempting to install Poise hook interfaces");
     Loki::PoiseMod::InstallStaggerHook();
-    Loki::PoiseMod::InstallWaterHook();
+    // Loki::PoiseMod::InstallWaterHook();
     Loki::PoiseMod::InstallIsActorKnockdownHook();
    // Loki::PoiseMod::InstallMagicEventSink();
 	Loki::PoiseMagicDamage::InstallNFACMagicHook();
