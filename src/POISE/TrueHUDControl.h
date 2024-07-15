@@ -11,7 +11,7 @@ namespace Loki {
         static float GetCurrentSpecial([[maybe_unused]] RE::Actor* a_actor);
 
         bool TrueHUDBars;
-        TRUEHUD_API::IVTrueHUD1* g_trueHUD = nullptr;
+        TRUEHUD_API::IVTrueHUD4* g_trueHUD = nullptr;
     };
 
 };
